@@ -1,0 +1,29 @@
+This project implements a kind of graphics card virtualization. It is split
+into two parts: a shared library called Libsession and an example program
+called Xsubsession.
+
+The library works by starting a program specified by the user. This program and
+all its descendants run in their own namespace. Linux namespaces allow
+different processes running on the same computer to see different filesystems.
+The library uses this to replace a few device files in /dev/ with virtual ones.
+The rest of the filesystem looks the same to the program inside the namespace.
+
+The virtual devices are implemented using CUSE (character device in userspace).
+In fact, this requires a modified kernel with mmap support. Now, when the
+programs in the namespace -- which I will refer to as the session from now on
+-- opens the graphics output device /dev/dri/card0 or input devices like
+/dev/input/mouse, they think they are talking to the hardware but are actually
+talking to Libsession. Libsession captures the output framebuffer, turns it
+into an OpenGL buffer object and sends it to the user.
+
+The example program, Xsubsession, simply displays the framebuffer contents in a
+window. When you start an X server and desktop environment inside the session
+it shows up inside this window just like when you run a virtual machine such as
+Qemu or VMWare. This may not sound terribly useful but even this has some
+interesting applications. For example, programs or games that only run in
+fullscreen mode are run windowed this way.
+
+In its current state, only the graphics card is virtualized which means that
+there is no mouse input, keyboard input or audio output. Even graphics output
+is a work in progress and probably doesn't even compile. It also only works on
+Radeon cards with the open source driver. In the future this will change.
