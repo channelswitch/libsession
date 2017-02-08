@@ -25,18 +25,13 @@ struct write_iov;
 static int initialize_cuse(struct card *c, char *device_name);
 static void cuse_process(void *user, int event);
 static void timerfd_process(void *user, int event);
-static void set_fb_size(struct card *c, unsigned fb, int w, int h);
-static int fb_w(struct card *c, unsigned fb);
-static int fb_h(struct card *c, unsigned fb);
+//static void set_fb_size(struct card *c, unsigned fb, int w, int h);
+//static int fb_w(struct card *c, unsigned fb);
+//static int fb_h(struct card *c, unsigned fb);
 static void request_context(struct card *c, struct fuse_in_header *ih,
 		char *buf);
 static int respond_to_dri_ioctl(struct card *c,
 		struct fuse_in_header *header_in, void *data);
-static void retry(int fd, uint64_t unique, struct fuse_ioctl_iovec *iov_in,
-		int iov_in_len, struct fuse_ioctl_iovec *iov_out,
-		int iov_out_len);
-static void ioctl_out(int fd, uint64_t unique, int return_value, ...);
-
 #define DISABLE_WAIT
 #define DEBUG_OUTPUT
 #define SCREEN_MESSAGES
@@ -329,7 +324,7 @@ void card_vsync(struct card *c)
  * Make FUSE ioctl retrying bearable.
  */
 
-#if 1
+#if 0
 static int ioctl_read(struct card *c, struct fuse_in_header *header_in,
 		void *data, uintptr_t addr, unsigned len)
 {
@@ -393,48 +388,9 @@ printf("IOCTL READ. UNIQUE = %ld, UNIQUE 2 = %ld, status = %d (%s).\n"
 	memcpy(data, buf, len);
 	return status;
 }
-#else
-#define MAX_IOCTL_READS 20
-static int ioctl_retry(struct card *c, struct fuse_in_header *header_in,
-		unsigned n_iovs, ...)
-{
-	assert(n_iovs <= MAX_IOCTL_READS);
-
-	struct fuse_out_header header_out;
-	memset(&header_out, 0, sizeof header_out);
-	header_out.error = 0;
-	header_out.unique = header_in->unique;
-	header_out.len = 0;
-
-	struct fuse_ioctl_iovec fuse_iovec[MAX_IOCTL_READS];
-
-	va_list args;
-	va_start(args, header_in);
-	unsigned i;
-	for(i = 0; i < n_iovs; ++i) {
-		fuse_iovec[i].base = va_arg(args, uint64_t);
-		fuse_iovec[i].len = va_arg(args, uint64_t);
-	}
-	va_end(args);
-
-	struct iovec iov[3];
-
-	iov[0].iov_base = &header_out;
-	iov[0].iov_len = sizeof header_out;
-	header_out.len += iov[0].iov_len;
-
-	iov[1].iov_base = &out;
-	iov[1].iov_len = sizeof out;
-	header_out.len += iov[1].iov_len;
-
-	iov[2].iov_base = fuse_iovec;
-	iov[2].iov_len = sizeof fuse_iovec[0] * n_iovs;
-	header_out.len += iov[2].iov_len;
-
-	return writev(c->fd, iov, sizeof iov / sizeof iov[0]);
-}
 #endif
 
+#if 0
 /* Each ... is three args: void *src, uintptr_t dst, unsigned len. */
 #define MAX_WRITES 10
 static int ioctl_write_and_return(struct card *c,
@@ -534,12 +490,13 @@ static int ioctl_write_and_return(struct card *c,
 	writev(c->fd, iov, 2 + argc);
 	return 0;
 }
+#endif
 
 /*
  * Keeping track of framebuffers.
  */
 
-static int add_fb(struct card *c, unsigned fb, unsigned handle)
+/*static int add_fb(struct card *c, unsigned fb, unsigned handle)
 {
 	struct framebuffer *new_fb = realloc(c->fbs,
 			sizeof *c->fbs * (c->n_fbs + 1));
@@ -613,13 +570,14 @@ static int fb_h(struct card *c, unsigned fb)
 		if(c->fbs[i].fb == fb) return c->fbs[i].h;
 	}
 	return 0;
-}
+}*/
 
 /*
  * Here comes the interesting stuff
  */
 
 #ifdef DEBUG_OUTPUT
+#if 0
 static void print_mode(struct drm_mode_modeinfo *mode)
 {
 	printf("  Mode Name: %s\n"
@@ -656,7 +614,9 @@ static void print_array(char *str, uint32_t *array, unsigned sz, unsigned len)
 	printf("\n");
 }
 #endif
+#endif
 
+#if 0
 static int respond_to_dri_ioctl_old(struct card *c,
 		struct fuse_in_header *header_in, void *data)
 {
@@ -1495,6 +1455,7 @@ first = 0;
 #undef CASE
 	return 0;
 }
+#endif
 
 /*
  * Simplifying the retrying thing.
@@ -1724,7 +1685,7 @@ static int version(struct retry *r)
 	vers.name = name1;
 	vers.date = date1;
 	vers.desc = desc1;
-	printf("Version: %d = \"%s\" \"%s\" \"%s\"\n", name, date, desc);
+	printf("Version: \"%s\" \"%s\" \"%s\"\n", name, date, desc);
 
 	retry_return(r, status);
 	return 0;
