@@ -29,6 +29,7 @@ static void x_event(void *user, int event);
 static GLuint name_to_texture(struct data *r, uint32_t name, int w, int h);
 static void draw(struct data *data);
 static void resources(void *user, unsigned sequence);
+static int modeset_ioctl(void *user, uint32_t cmd, void *arg);
 
 struct fb {
 	uint32_t name;
@@ -243,7 +244,7 @@ int main(int argc, char **argv)
 	args.resources = resources;
 	if(session_new(&session, register_fd, unregister_fd,
 				exit_callback, &data,
-				&args)) goto e_session;
+				&args, modeset_ioctl)) goto e_session;
 	data.s = session;
 
 	session_start(session,
@@ -259,11 +260,13 @@ int main(int argc, char **argv)
 			int status = epoll_wait(data.epoll_fd, &ev, 1, 0);
 			if(!status) break;
 			struct registered_fd *reg = ev.data.ptr;
+printf("Xsubsession: got message on fd: %d\n", reg->fd);
 			reg->f(reg->user1,
 					(ev.events & EPOLLIN ? 1 : 0) |
 					(ev.events & EPOLLOUT ? 2 : 0) |
 					(ev.events & EPOLLERR ? 4 : 0) |
 					(ev.events & EPOLLHUP ? 8 : 0));
+printf("Xsubsession: callback done\n");
 		}
 		draw(&data);
 		eglSwapBuffers(data.egl_display, egl_surface);
@@ -486,6 +489,7 @@ static void draw(struct data *data)
  * Screen stuff
  */
 
+#if 0
 static uint32_t fb_ids[] = {
 };
 
@@ -515,9 +519,80 @@ static struct session_dri_resources res = {
 	.min_height = 0,
 	.max_height = 16384,
 };
+#endif
 
 static void resources(void *user, unsigned sequence)
 {
-	struct data *data = user;
-	session_send_dri_resources(data->s, &res, sequence);
+//	struct data *data = user;
+//	session_send_dri_resources(data->s, &res, sequence);
+}
+
+#include "../libsession/drm.h"
+#include "../libsession/radeon_drm.h"
+
+static int modeset_ioctl(void *user, uint32_t cmd, void *arg)
+{
+	switch(cmd) {
+#define CASE(name) case name: printf("Xsubsession got " #name "!\n"); break;
+		CASE(DRM_IOCTL_SET_VERSION)
+		CASE(DRM_IOCTL_GET_UNIQUE)
+		CASE(DRM_IOCTL_VERSION)
+		CASE(DRM_IOCTL_MODE_GETRESOURCES)
+		CASE(DRM_IOCTL_GET_CAP)
+		CASE(DRM_IOCTL_MODE_GETCRTC)
+		CASE(DRM_IOCTL_MODE_GETCONNECTOR)
+		CASE(DRM_IOCTL_SET_MASTER)
+		CASE(DRM_IOCTL_DROP_MASTER)
+		CASE(DRM_IOCTL_MODE_CREATE_DUMB)
+		CASE(DRM_IOCTL_MODE_ADDFB)
+		CASE(DRM_IOCTL_MODE_RMFB)
+		CASE(DRM_IOCTL_MODE_DESTROY_DUMB)
+		CASE(DRM_IOCTL_RADEON_INFO)
+		CASE(DRM_IOCTL_MODE_GETENCODER)
+		CASE(DRM_IOCTL_MODE_GETPROPERTY)
+		CASE(DRM_IOCTL_MODE_GETPROPBLOB)
+		CASE(DRM_IOCTL_RADEON_GEM_INFO)
+		CASE(DRM_IOCTL_RADEON_GEM_CREATE)
+		CASE(DRM_IOCTL_RADEON_GEM_MMAP)
+		CASE(DRM_IOCTL_RADEON_GEM_WAIT_IDLE)
+		CASE(DRM_IOCTL_RADEON_GEM_SET_TILING)
+		CASE(DRM_IOCTL_MODE_SETPROPERTY)
+		CASE(DRM_IOCTL_MODE_GETFB)
+		CASE(DRM_IOCTL_GEM_FLINK)
+		CASE(DRM_IOCTL_GEM_OPEN)
+		CASE(DRM_IOCTL_GEM_CLOSE)
+		CASE(DRM_IOCTL_RADEON_GEM_GET_TILING)
+		CASE(DRM_IOCTL_RADEON_CS)
+		CASE(DRM_IOCTL_MODE_SETGAMMA)
+		CASE(DRM_IOCTL_MODE_SETCRTC)
+		CASE(DRM_IOCTL_WAIT_VBLANK)
+		CASE(DRM_IOCTL_RADEON_GEM_BUSY)
+		CASE(DRM_IOCTL_RADEON_GEM_OP)
+		CASE(DRM_IOCTL_MODE_PAGE_FLIP)
+		CASE(0xc018646d)
+		CASE(DRM_IOCTL_MODE_CURSOR)
+		CASE(DRM_IOCTL_MODE_CURSOR2)
+		CASE(DRM_IOCTL_MODE_MAP_DUMB)
+		CASE(DRM_IOCTL_MODE_DIRTYFB)
+#undef CASE
+		default:
+			printf("IOCTL unknown!!!!!\n");
+	}
+	sleep(5);
+	if(cmd == DRM_IOCTL_SET_VERSION) {
+		struct drm_set_version *sv = arg;
+		return 0;
+	}
+	else if(cmd == DRM_IOCTL_VERSION) {
+		struct drm_version *v = arg;
+		printf("DRM_IOCTL_VERSION\n");
+		printf("name_len = %d\n", v->name_len);
+		strcpy(v->name, "Test name!!!!");
+		v->name_len = strlen(v->name);
+	}
+	else {
+		printf("Other ioctl\n");
+	}
+
+	return 0;
 }

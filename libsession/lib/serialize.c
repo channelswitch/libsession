@@ -6,12 +6,12 @@
 #include <string.h>
 
 static int serialize_u32(uint32_t n, char *buf, int buf_sz);
-static int serialize_u32_array(uint32_t *array, unsigned n_elems, char *buf,
-		int buf_sz);
+//static int serialize_u32_array(uint32_t *array, unsigned n_elems, char *buf,
+//		int buf_sz);
 static int serialize_string(char *str, char *buf, int buf_sz);
 static int serialize_argv(char **argv, char *buf, int buf_sz);
-static int serialize_dri_resources(struct session_dri_resources *res,
-		char *buf, int buf_sz);
+//static int serialize_dri_resources(struct session_dri_resources *res,
+//		char *buf, int buf_sz);
 
 int serialize_message_in(struct message_in *message,
 		char *buf, int buf_sz)
@@ -22,12 +22,12 @@ int serialize_message_in(struct message_in *message,
 		r += serialize_string(message->cmd.path, buf + r, buf_sz - r);
 		r += serialize_argv(message->cmd.argv, buf + r, buf_sz - r);
 	}
-	else if(message->type == RESOURCES_RESPONSE) {
-		r += serialize_u32(message->resources.unique, buf + r,
-				buf_sz - r);
-		r += serialize_dri_resources(message->resources.res, buf + r,
-				buf_sz - r);
-	}
+//	else if(message->type == RESOURCES_RESPONSE) {
+//		r += serialize_u32(message->resources.unique, buf + r,
+//				buf_sz - r);
+//		r += serialize_dri_resources(message->resources.res, buf + r,
+//				buf_sz - r);
+//	}
 	else {
 		assert(0);
 	}
@@ -45,19 +45,19 @@ ret:
 	return sizeof n;
 }
 
-static int serialize_u32_array(uint32_t *array, unsigned n_elems, char *buf,
-		int buf_sz)
-{
-	int r = 4 * n_elems;
-	if(r > buf_sz) goto ret;
-	r = 0;
-	unsigned i;
-	for(i = 0; i < n_elems; ++i) {
-		r += serialize_u32(array[i], buf + r, buf_sz - r);
-	}
-ret:
-	return r;
-}
+//static int serialize_u32_array(uint32_t *array, unsigned n_elems, char *buf,
+//		int buf_sz)
+//{
+//	int r = 4 * n_elems;
+//	if(r > buf_sz) goto ret;
+//	r = 0;
+//	unsigned i;
+//	for(i = 0; i < n_elems; ++i) {
+//		r += serialize_u32(array[i], buf + r, buf_sz - r);
+//	}
+//ret:
+//	return r;
+//}
 
 static int serialize_string(char *s, char *buf, int buf_sz)
 {
@@ -85,6 +85,7 @@ static int serialize_argv(char **argv, char *buf, int buf_sz)
 	return r;
 }
 
+#if 0
 static int serialize_dri_resources(struct session_dri_resources *res,
 		char *buf, int buf_sz)
 {
@@ -109,3 +110,4 @@ static int serialize_dri_resources(struct session_dri_resources *res,
 
 	return r;
 }
+#endif

@@ -1,0 +1,4 @@
+SESSION {
+  global: session_*;
+  local: *;
+};

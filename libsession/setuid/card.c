@@ -1,9 +1,10 @@
 #include "card.h"
+#include "ioctls.h"
 #include <stddef.h>
-#include "drm.h"
-#include "makejmp.h"
+//#include "drm.h"
+//#include "makejmp.h"
 #include <stdint.h>
-#include "radeon_drm.h"
+//#include "radeon_drm.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -31,7 +32,7 @@ static void timerfd_process(void *user, int event);
 static void request_context(struct card *c, struct fuse_in_header *ih,
 		char *buf);
 static int respond_to_dri_ioctl(struct card *c,
-		struct fuse_in_header *header_in, void *data);
+		struct fuse_in_header *header_in, char *data);
 #define DISABLE_WAIT
 #define DEBUG_OUTPUT
 #define SCREEN_MESSAGES
@@ -59,10 +60,16 @@ struct fuse_mmap_in {
  * Card info
  */
 
-struct framebuffer {
-	unsigned fb;
-	unsigned name;
-	int w, h;
+//struct framebuffer {
+//	unsigned fb;
+//	unsigned name;
+//	int w, h;
+//};
+
+struct ioctl_wait {
+	struct ioctl_wait *next, **prev_p;
+	uint64_t unique;
+	int buffer_len;
 };
 
 struct card {
@@ -93,11 +100,13 @@ struct card {
 
 	void *card_ptr;
 
-	unsigned n_fbs;
-	struct framebuffer *fbs;
+//	unsigned n_fbs;
+//	struct framebuffer *fbs;
 
-	void (*resources)(void *user, uint64_t unique);
-	void (*framebuffer)(void *user, uint32_t name, int w, int h);
+//	void (*resources)(void *user, uint64_t unique);
+//	void (*framebuffer)(void *user, uint32_t name, int w, int h);
+
+	struct ioctl_wait *ioctls_waiting;
 };
 
 static int card(
@@ -112,8 +121,8 @@ static int card(
 		void (*unregister_fd)(void *fd_ptr),
 		void *user,
 		int fd,
-		void (*resources)(void *user, uint64_t unique),
-		void (*framebuffer)(void *user, uint32_t name, int w, int h),
+//		void (*resources)(void *user, uint64_t unique),
+//		void (*framebuffer)(void *user, uint32_t name, int w, int h),
 		char *device_name)
 {
 	if(c) goto free;
@@ -164,11 +173,13 @@ its.it_interval.tv_nsec = 1000000000 / 2;
 	if(!c->card_ptr) goto e_register_card;
 #endif
 
-	c->n_fbs = 0;
-	c->fbs = NULL;
+//	c->n_fbs = 0;
+//	c->fbs = NULL;
 
-	c->resources = resources;
-	c->framebuffer = framebuffer;
+//	c->resources = resources;
+//	c->framebuffer = framebuffer;
+
+	c->ioctls_waiting = NULL;
 
 	if(initialize_cuse(c, device_name)) goto e_initialize;
 
@@ -176,6 +187,8 @@ its.it_interval.tv_nsec = 1000000000 / 2;
 	return 0;
 
 free:
+	//TODO XXX FIXME: got to end all outstanding ioctls when freeing or
+	//programs will hang badly
 e_initialize:
 #ifndef DISABLE_WAIT
 	c->unregister_fd(c->card_ptr);
@@ -205,17 +218,17 @@ int card_new(
 		void (*unregister_fd)(void *fd_ptr),
 		void *user,
 		int fd,
-		void (*resources)(void *user, uint64_t unique),
-		void (*framebuffer)(void *user, uint32_t name, int w, int h),
+//		void (*resources)(void *user, uint64_t unique),
+//		void (*framebuffer)(void *user, uint32_t name, int w, int h),
 		char *device_name)
 {
 	return card(NULL, c_out, register_fd, unregister_fd, user, fd,
-			resources, framebuffer, device_name);
+			device_name);
 }
 
 void card_free(struct card *c)
 {
-	if(c) card(c, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL);
+	if(c) card(c, NULL, NULL, NULL, NULL, 0, NULL);
 }
 
 static int initialize_cuse(struct card *c, char *device_name)
@@ -282,8 +295,9 @@ static void timerfd_process(void *user, int event)
 	struct card *c = user;
 	uint64_t expirations;
 	read(c->timerfd, &expirations, sizeof expirations);
+	//TODO: get rid of timerfd, probably
 	//TODO: could loop for expiration times.
-	card_vsync(c);
+//	card_vsync(c);
 }
 
 static void notify_poll(struct card *c)
@@ -320,6 +334,7 @@ void card_vsync(struct card *c)
 	}
 }
 
+#if 0
 /*
  * Make FUSE ioctl retrying bearable.
  */
@@ -1095,7 +1110,46 @@ errgeminfo_0:		if(err) ioctl_write_and_return(c, header_in, err, 0);
 #endif
 		}
 		CASE(DRM_IOCTL_RADEON_GEM_MMAP)
-		{
+		{#else
+#define MAX_IOCTL_READS 20
+static int ioctl_retry(struct card *c, struct fuse_in_header *header_in,
+		unsigned n_iovs, ...)
+{
+	assert(n_iovs <= MAX_IOCTL_READS);
+
+	struct fuse_out_header header_out;
+	memset(&header_out, 0, sizeof header_out);
+	header_out.error = 0;
+	header_out.unique = header_in->unique;
+	header_out.len = 0;
+
+	struct fuse_ioctl_iovec fuse_iovec[MAX_IOCTL_READS];
+
+	va_list args;
+	va_start(args, header_in);
+	unsigned i;
+	for(i = 0; i < n_iovs; ++i) {
+		fuse_iovec[i].base = va_arg(args, uint64_t);
+		fuse_iovec[i].len = va_arg(args, uint64_t);
+	}
+	va_end(args);
+
+	struct iovec iov[3];
+
+	iov[0].iov_base = &header_out;
+	iov[0].iov_len = sizeof header_out;
+	header_out.len += iov[0].iov_len;
+
+	iov[1].iov_base = &out;
+	iov[1].iov_len = sizeof out;
+	header_out.len += iov[1].iov_len;
+
+	iov[2].iov_base = fuse_iovec;
+	iov[2].iov_len = sizeof fuse_iovec[0] * n_iovs;
+	header_out.len += iov[2].iov_len;
+
+	return writev(c->fd, iov, sizeof iov / sizeof iov[0]);
+}
 			struct drm_radeon_gem_mmap mm;
 			ioctl_read(c, header_in, &mm, ioi->arg, sizeof mm);
 			int status = ioctl(c->card, DRM_IOCTL_RADEON_GEM_MMAP, &mm);
@@ -1457,318 +1511,224 @@ first = 0;
 }
 #endif
 
+#endif
+
 /*
- * Simplifying the retrying thing.
+ * Ioctl wait list
  */
 
-#define MAX_SEGMENTS 10
+static int ioctl_wait(struct ioctl_wait *w, struct ioctl_wait **w_out,
+		struct card *c, uint64_t unique, int buffer_len)
+{
+	if(w) goto free;
 
-struct retry {
+	w = malloc(sizeof *w);
+	if(!w) goto e_malloc;
+
+	w->unique = unique;
+	w->buffer_len = buffer_len;
+
+	struct ioctl_wait *next = c->ioctls_waiting;
+	w->next = next;
+	w->prev_p = &c->ioctls_waiting;
+	c->ioctls_waiting = w;
+	if(next) next->prev_p = &w->next;
+
+	*w_out = w;
+	return 0;
+
+free:
+	free(w);
+e_malloc:
+	return -1;
+}
+
+static int ioctl_wait_new(struct ioctl_wait **w_out, struct card *c,
+		uint64_t unique, int buffer_len)
+{
+	return ioctl_wait(NULL, w_out, c, unique, buffer_len);
+}
+
+static void ioctl_wait_free(struct ioctl_wait *w)
+{
+	if(w) ioctl_wait(w, NULL, NULL, 0, 0);
+}
+
+/*
+ * Ioctl stuff
+ */
+
+struct ioctl_data {
 	struct card *c;
-	int out;
-	char *buf, *buf0;
-	size_t buf_len, buf0_len;
-	size_t out_len;
-	uint64_t unique;
-	uint64_t inarg;
-	int iov_len;
-	struct fuse_ioctl_iovec iov[MAX_SEGMENTS];
-	void *segments[MAX_SEGMENTS];
 };
 
-static void retry_init(struct retry *r, struct card *c, uint64_t unique,
-		struct fuse_ioctl_in *ioi, char *buf)
+/*
+ * Return error from ioctl. Buf and len are needed because FUSE won't accept
+ * it otherwise (they must be correct -- ie len == fuse_ioctl_in->out_size).
+ */
+static void return_error(struct card *c, uint64_t unique, char *buf, int len)
 {
-	r->c = c;
-	r->out = 0;
-	r->buf0 = r->buf = buf;
-	r->buf0_len = r->buf_len = ioi->in_size;
-	r->out_len = ioi->out_size;
-	r->unique = unique;
-	r->inarg = ioi->arg;
-	r->iov_len = 0;
-}
-
-static void retry_read(struct retry *r, void *out, uint64_t ptr, size_t sz)
-{
-	assert(r->iov_len < sizeof r->iov / sizeof r->iov[0]);
-	if(r->out) return;
-	if(r->buf_len < sz) {
-		r->out = 1;
-	}
-	else {
-		memcpy(out, r->buf, sz);
-		r->buf += sz;
-		r->buf_len -= sz;
-	}
-	r->iov[r->iov_len].base = ptr;
-	r->iov[r->iov_len].len = sz;
-	r->segments[r->iov_len] = out;
-	++r->iov_len;
-}
-
-static int retry_checkpoint(struct retry *r)
-{
-	if(!r->out) return 0;
-
-	assert(r->out_len == 0);
-
 	struct fuse_out_header oh;
 	oh.error = 0;
-	oh.unique = r->unique;
+	oh.unique = unique;
 
-	struct fuse_ioctl_out ioo;
-	ioo.result = 0;
-	ioo.flags = FUSE_IOCTL_RETRY;
-	ioo.in_iovs = r->iov_len;
-	ioo.out_iovs = 0;
+	struct fuse_ioctl_out io;
+	io.result = -EINVAL;
+	io.flags = 0;
+	io.in_iovs = 0;
+	io.out_iovs = 0;
 
 	struct iovec iov[3];
 
 	iov[0].iov_base = &oh;
 	iov[0].iov_len = sizeof oh;
-	iov[1].iov_base = &ioo;
-	iov[1].iov_len = sizeof ioo;
-	iov[2].iov_base = r->iov;
-	iov[2].iov_len = sizeof r->iov[0] * r->iov_len;
+	iov[1].iov_base = &io;
+	iov[1].iov_len = sizeof io;
+	iov[2].iov_base = buf;
+	iov[2].iov_len = len;
 
 	oh.len = iov[0].iov_len + iov[1].iov_len + iov[2].iov_len;
 
-	int status = writev(r->c->fd, iov, 3);
+	int status = writev(c->fd, iov, 3);
 	if(status < 0) {
 		fprintf(stderr, "Error writing ioctl response to CUSE: %s.\n",
 				strerror(errno));
 	}
-
-	return 1;
 }
 
-static int retry_finish(struct retry *r)
+void return_ioctl_error(void *user, uint64_t unique, char *buf, int len)
 {
-	if(!r->out) return 0;
+	struct ioctl_data *data = user;
+	return_error(data->c, unique, buf, len);
+}
 
-	assert(r->out_len == 0);
+static void return_success(struct card *c, uint64_t unique, int return_value,
+		char *buf, int len)
+{
+	struct fuse_out_header oh;
+	oh.error = 0;
+	oh.unique = unique;
+
+	struct fuse_ioctl_out io;
+	io.result = return_value;
+	io.flags = 0;
+	io.in_iovs = 0;
+	io.out_iovs = 0;
+
+	struct iovec iov[3];
+
+	iov[0].iov_base = &oh;
+	iov[0].iov_len = sizeof oh;
+	iov[1].iov_base = &io;
+	iov[1].iov_len = sizeof io;
+	iov[2].iov_base = buf;
+	iov[2].iov_len = len;
+
+	oh.len = iov[0].iov_len + iov[1].iov_len + iov[2].iov_len;
+
+	int status = writev(c->fd, iov, 3);
+	if(status < 0) {
+		fprintf(stderr, "Error writing ioctl response to CUSE: %s.\n",
+				strerror(errno));
+	}
+}
+
+void send_modeset_ioctl_to_user(void *user, uint64_t unique, uint32_t cmd,
+		uint64_t inarg, char *buf, int len)
+{
+printf("Session-master: send ioctl to user.\n");
+	struct ioctl_data *data = user;
+
+	struct ioctl_wait *w;
+	if(ioctl_wait_new(&w, data->c, unique, len)) goto e_alloc_wait;
+
+	if(card_send_modeset_ioctl(data->c->user, unique, cmd, inarg,
+				buf, len)) goto e_send;
+
+	return;
+
+e_send:
+	ioctl_wait_free(w);
+e_alloc_wait:
+	return_error(user, unique, buf, len);
+	return;
+}
+
+void card_modeset_ioctl_response(struct card *c, uint64_t unique,
+		int return_value, char *buf, int len)
+{
+	struct ioctl_wait *w;
+	for(w = c->ioctls_waiting; w; w = w->next) {
+		if(w->unique == unique) goto found;
+	}
+	return;
+found:
+
+	if(len != w->buffer_len) goto wrong_format;
+	return_success(c, unique, return_value, buf, len);
+	ioctl_wait_free(w);
+	return;
+
+	static char empty_buffer[BUFSZ];
+wrong_format:
+	return_error(c, unique, empty_buffer, w->buffer_len);
+	ioctl_wait_free(w);
+}
+
+void retry_ioctl(void *user, uint64_t unique, struct fuse_ioctl_iovec *fiov,
+		int fiov_len, int last_retry)
+{
+	struct ioctl_data *data = user;
 
 	struct fuse_out_header oh;
 	oh.error = 0;
-	oh.unique = r->unique;
+	oh.unique = unique;
 
-	struct fuse_ioctl_out ioo;
-	ioo.result = 0;
-	ioo.flags = FUSE_IOCTL_RETRY;
-	ioo.in_iovs = r->iov_len;
-	ioo.out_iovs = r->iov_len;
+	struct fuse_ioctl_out io;
+	io.result = 0;
+	io.flags = FUSE_IOCTL_RETRY;
+	io.in_iovs = fiov_len;
+	io.out_iovs = last_retry ? fiov_len : 0;
 
 	struct iovec iov[4];
-
 	iov[0].iov_base = &oh;
 	iov[0].iov_len = sizeof oh;
-	iov[1].iov_base = &ioo;
-	iov[1].iov_len = sizeof ioo;
-	iov[2].iov_base = r->iov;
-	iov[2].iov_len = sizeof r->iov[0] * r->iov_len;
-	iov[3].iov_base = r->iov;
-	iov[3].iov_len = sizeof r->iov[0] * r->iov_len;
-
-	oh.len = iov[0].iov_len + iov[1].iov_len + iov[2].iov_len +
-		iov[3].iov_len;
-
-	int status = writev(r->c->fd, iov, 4);
-	if(status < 0) {
-		fprintf(stderr, "Error writing ioctl response to CUSE: %s.\n",
-				strerror(errno));
-	}
-
-	return 1;
-}
-
-static void retry_error(struct retry *r)
-{
-	struct fuse_out_header oh;
-	oh.error = 0;
-	oh.unique = r->unique;
-
-	struct fuse_ioctl_out ioo;
-	ioo.result = -EIO;
-	ioo.flags = 0;
-	ioo.in_iovs = 0;
-	ioo.out_iovs = 0;
-
-	struct iovec iov[3];
-
-	iov[0].iov_base = &oh;
-	iov[0].iov_len = sizeof oh;
-	iov[1].iov_base = &ioo;
-	iov[1].iov_len = sizeof ioo;
-	iov[2].iov_base = r->buf0;
-	iov[2].iov_len = r->buf0_len;
+	iov[1].iov_base = &io;
+	iov[1].iov_len = sizeof io;
+	iov[2].iov_base = fiov;
+	iov[2].iov_len = sizeof fiov[0] * fiov_len;
 
 	oh.len = iov[0].iov_len + iov[1].iov_len + iov[2].iov_len;
 
-	int status = writev(r->c->fd, iov, 3);
+	if(last_retry) {
+		iov[3].iov_base = fiov;
+		iov[3].iov_len = sizeof fiov[0] * fiov_len;
+		oh.len += iov[3].iov_len;
+	}
+
+	int status = writev(data->c->fd, iov, last_retry ? 4 : 3);
 	if(status < 0) {
 		fprintf(stderr, "Error writing ioctl response to CUSE: %s.\n",
 				strerror(errno));
 	}
 }
 
-static void retry_return(struct retry *r, int return_value)
-{
-	struct fuse_out_header oh;
-	oh.error = 0;
-	oh.unique = r->unique;
-
-	struct fuse_ioctl_out ioo;
-	ioo.result = return_value;
-	ioo.flags = 0;
-	ioo.in_iovs = 0;
-	ioo.out_iovs = 0;
-
-	struct iovec iov[2 + sizeof r->iov / sizeof r->iov[0]];
-
-	iov[0].iov_base = &oh;
-	iov[0].iov_len = sizeof oh;
-	iov[1].iov_base = &ioo;
-	iov[1].iov_len = sizeof ioo;
-
-	oh.len = iov[0].iov_len + iov[1].iov_len;
-
-	size_t out_len = 0;
-	int i;
-	for(i = 0; i < r->iov_len; ++i) {
-		void *ptr = r->segments[i];
-		size_t sz = r->iov[i].len;
-		iov[2 + i].iov_base = ptr;
-		iov[2 + i].iov_len = sz;
-		out_len += sz;
-	}
-	assert(out_len == r->out_len);
-	oh.len += out_len;
-
-	int status = writev(r->c->fd, iov, 2 + i);
-	if(status < 0) {
-		fprintf(stderr, "Error writing ioctl response to CUSE: %s.\n",
-				strerror(errno));
-	}
-}
-
-/*
- * Specific ioctls
- */
-
-static int version(struct retry *r)
-{
-	struct drm_version vers;
-	retry_read(r, &vers, r->inarg, sizeof vers);
-	if(retry_checkpoint(r)) return 0;
-
-	char name[4096], date[4096], desc[4096];
-	if(vers.name_len > sizeof name
-			|| vers.date_len > sizeof date
-			|| vers.desc_len > sizeof desc) {
-		retry_error(r);
-		return 0;
-	}
-
-	retry_read(r, name, (uint64_t)vers.name, vers.name_len);
-	retry_read(r, date, (uint64_t)vers.date, vers.date_len);
-	retry_read(r, desc, (uint64_t)vers.desc, vers.desc_len);
-	if(retry_finish(r)) return 0;
-
-	char *name1 = vers.name;
-	char *date1 = vers.date;
-	char *desc1 = vers.desc;
-	vers.name = name;
-	vers.date = date;
-	vers.desc = desc;
-	int status = ioctl(r->c->card, DRM_IOCTL_VERSION, &vers);
-	vers.name = name1;
-	vers.date = date1;
-	vers.desc = desc1;
-	printf("Version: \"%s\" \"%s\" \"%s\"\n", name, date, desc);
-
-	retry_return(r, status);
-	return 0;
-}
-
-static int set_version(struct retry *r)
-{
-	struct drm_set_version dsv;
-	retry_read(r, &dsv, r->inarg, sizeof dsv);
-	if(retry_finish(r)) return 0;
-
-	int status = ioctl(r->c->card, DRM_IOCTL_SET_VERSION, &dsv);
-
-	retry_return(r, status);
-	return 0;
-}
-
-static int get_unique(struct retry *r)
-{
-	struct drm_unique uniq;
-	retry_read(r, &uniq, r->inarg, sizeof uniq);
-	if(retry_finish(r)) return 0;
-
-	uniq.unique_len = 0;
-
-	retry_return(r, 0);
-	return 0;
-}
-
-static int get_resources(struct retry *r)
-{
-	printf("Get Resources!\n");
-
-	struct drm_mode_card_res res;
-	retry_read(r, &res, r->inarg, sizeof res);
-	if(retry_checkpoint(r)) return 0;
-
-	size_t fb_size = sizeof(uint32_t) * res.count_fbs;
-	size_t crtc_size = sizeof(uint32_t) * res.count_crtcs;
-	size_t connector_size = sizeof(uint32_t) * res.count_connectors;
-	size_t encoder_size = sizeof(uint32_t) * res.count_encoders;
-
-	uint32_t fbs[1024], crtcs[1024], connectors[1024], encoders[1024];
-
-	if(fb_size > sizeof fbs
-			|| crtc_size > sizeof crtcs
-			|| connector_size > sizeof connectors
-			|| encoder_size > sizeof encoders) {
-		retry_error(r);
-		return 0;
-	}
-
-	retry_read(r, fbs, res.fb_id_ptr, fb_size);
-	retry_read(r, crtcs, res.crtc_id_ptr, crtc_size);
-	retry_read(r, connectors, res.connector_id_ptr, connector_size);
-	retry_read(r, encoders, res.encoder_id_ptr, encoder_size);
-	if(retry_finish(r)) return 0;
-
-	retry_error(r);
-	return 0;
-}
-
-/*
- * Device actions
- */
-
+#include "../drm.h"
+#include "../radeon_drm.h"
 static int respond_to_dri_ioctl(struct card *c,
-		struct fuse_in_header *ih, void *data)
+		struct fuse_in_header *ih, char *buf)
 {
-	struct retry retry, *r;
-	struct fuse_ioctl_in *ioi = data;
-	retry_init(&retry, c, ih->unique, ioi, (char *)data + sizeof *ioi);
-	r = &retry;
-	switch(ioi->cmd) {
-		case DRM_IOCTL_SET_VERSION: return set_version(r);
-		case DRM_IOCTL_GET_UNIQUE: return get_unique(r);
-		case DRM_IOCTL_VERSION: return version(r);
-		case DRM_IOCTL_MODE_GETRESOURCES: return get_resources(r);
-		default:
-			retry_error(r);
-			printf("Unknown ioctl.\n");
+	struct ioctl_data data = {
+		.c = c,
+	};
+	struct fuse_ioctl_in *ioi = (void *)buf;
+	int buflen = ih->len - sizeof *ih;
 
-#define CASE(name) if(ioi->cmd == name) printf("The ioctl was " #name ".\n");
+#if 1
+	switch(ioi->cmd) {
+#define CASE(name) case name: printf("IOCTL " #name "!\n"); break;
+		CASE(DRM_IOCTL_SET_VERSION)
+		CASE(DRM_IOCTL_GET_UNIQUE)
 		CASE(DRM_IOCTL_VERSION)
 		CASE(DRM_IOCTL_MODE_GETRESOURCES)
 		CASE(DRM_IOCTL_GET_CAP)
@@ -1807,12 +1767,24 @@ static int respond_to_dri_ioctl(struct card *c,
 		CASE(DRM_IOCTL_MODE_CURSOR2)
 		CASE(DRM_IOCTL_MODE_MAP_DUMB)
 		CASE(DRM_IOCTL_MODE_DIRTYFB)
-		CASE(DRM_IOCTL_VERSION)
 #undef CASE
+		default:
+			printf("IOCTL unknown!!!!!\n");
 	}
+#endif
+printf("ioctl len = %lu, len - sizeof drm_set_version = %lu, in_size = %d, out_size = %d\n", buflen - sizeof *ioi, buflen - sizeof *ioi - sizeof(struct drm_unique), ioi->in_size, ioi->out_size);
+
+sleep(5);
+	handle_ioctl(&data, ih->unique, ioi->cmd, ioi->arg, buf + sizeof *ioi,
+			buflen - sizeof *ioi);
+printf("Session-master: ioctl done.\n");
 
 	return 0;
 }
+
+/*
+ * Device open
+ */
 
 static int respond_to_dri_open(struct card *c,
 		struct fuse_in_header *header_in, void *data)
@@ -1838,6 +1810,10 @@ static int respond_to_dri_open(struct card *c,
 	return writev(c->fd, iov, 2);
 }
 
+/*
+ * Device close
+ */
+
 static int respond_to_dri_release(struct card *c,
 		struct fuse_in_header *header_in, void *data)
 {
@@ -1858,6 +1834,10 @@ static int respond_to_dri_release(struct card *c,
 
 	return writev(c->fd, iov, 1);
 }
+
+/*
+ * Mmap
+ */
 
 static int respond_to_dri_mmap(struct card *c,
 		struct fuse_in_header *header_in, void *data)
@@ -1899,6 +1879,10 @@ static int respond_to_dri_mmap(struct card *c,
 	return status;
 }
 
+/*
+ * Poll
+ */
+
 static int respond_to_dri_poll(struct card *c,
 		struct fuse_in_header *header_in, void *data)
 {
@@ -1930,9 +1914,16 @@ static int respond_to_dri_poll(struct card *c,
 	return writev(c->fd, iov, 2);
 }
 
+/*
+ * Read
+ */
+
 static int respond_to_dri_read(struct card *c,
 		struct fuse_in_header *header_in, void *data)
 {
+	printf("VBLANK!!!!\n");
+	assert(0);
+#if 0
 //	struct fuse_read_in *in = data;
 
 	struct fuse_out_header header_out;
@@ -1964,7 +1955,12 @@ static int respond_to_dri_read(struct card *c,
 	int status = writev(c->fd, iov, 2);
 
 	return status;
+#endif
 }
+
+/*
+ * Handle events
+ */
 
 static void cuse_process(void *user, int event)
 {
@@ -1988,12 +1984,6 @@ static void cuse_process(void *user, int event)
 	}
 
 	request_context(c, &header_in, buf);
-}
-
-void card_send_resources(struct card *c, uint64_t unique,
-		struct session_dri_resources *resources)
-{
-printf("!!! SENDING RESOURCES NOT IMPLEMENTET !!!\n");
 }
 
 static void request_context(struct card *c, struct fuse_in_header *ih,

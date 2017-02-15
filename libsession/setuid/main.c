@@ -39,8 +39,9 @@ static int forked_proc(void *user);
 static int make_tmpdir(char *dir);
 static void notify_umount(void *user);
 static void send_header(struct data *data, struct message_header_out *header);
-static void framebuffer_callback(void *user, uint32_t name, int w, int h);
-static void card_wants_resources(void *user, uint64_t unique);
+//static void framebuffer_callback(void *user, uint32_t name, int w, int h);
+//static void card_wants_resources(void *user, uint64_t unique);
+static void remove_outside_ref(struct data *data);
 
 struct data {
 	int socket_fd;
@@ -93,20 +94,51 @@ int main(int argc, char **argv)
 	data.child = 0;
 	data.flags = OUTSIDE_REF;
 
-	if(argc == 2) {
+	char *libsession_debug_socket = getenv("LIBSESSION_DEBUG_SOCKET");
+	if(libsession_debug_socket) {
+		/* Debug mode */
+		data.socket_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+		if(data.socket_fd == -1) {
+			fprintf(stderr, "Could not create socket: %s.\n",
+					strerror(errno));
+			return 1;
+		}
+
+		struct sockaddr_un addr;
+		memset(&addr, 0, sizeof addr);
+		if(strlen(libsession_debug_socket) + 1 > sizeof addr.sun_path) {
+			fprintf(stderr, "Socket path (\"%s\") too long.\n",
+					libsession_debug_socket);
+			return 1;
+		}
+		addr.sun_family = AF_UNIX;
+		strcpy(addr.sun_path, libsession_debug_socket);
+		if(connect(data.socket_fd, &addr, sizeof addr) == -1) {
+			fprintf(stderr, "Error connecting to \"%s\": %s.\n",
+					libsession_debug_socket,
+					strerror(errno));
+			return 1;
+		}
+	}
+	else if(argc == 2) {
 		/* Invoked by libsession. Fd is inherited and given as arg. */
 		data.socket_fd = atoi(argv[1]);
 	}
 	else {
-		printf("Should only be launched by Libsession. If you wish to "
-				"debug session-master, run\nit with the "
-				"environment variable SESSION_MASTER_DEBUG "
-				"defined and it will pause\nso you can attach "
-				"a debugger.\n");
+		printf("Session-master should normally only be launched by "
+				"libsession.\n\nIf you wish to debug "
+				"session-master or libsession, first run the "
+				"program that\nuses libsession with the "
+				"environment variable LIBSESSION_DEBUG_SOCKET "
+				"set.\nLibsession will create a Unix Domain "
+				"socket where LIBSESSION_DEBUG_SOCKET\npoints "
+				"and wait for session-master to connect. "
+				"Then run session-master with the\nsame "
+				"environment variable and execution will "
+				"continue as normal. This lets you\nstart "
+				"either program in GDB.\n");
 		goto e_args;
 	}
-
-	if(getenv("SESSION_MASTER_DEBUG")) raise(SIGSTOP);
 
 	/*
 	 * Check that it is a Unix Domain socket. Can't think of how failure
@@ -217,8 +249,8 @@ int main(int argc, char **argv)
 	}
 	if(card_new(&data.card, register_fd, unregister_fd, &data,
 				data.card_fd,
-				card_wants_resources,
-				framebuffer_callback,
+//				card_wants_resources,
+//				framebuffer_callback,
 				card_device + 5)) {
 		goto e_card_new;
 	}
@@ -305,6 +337,13 @@ e_args:
 	return r;
 }
 
+static void remove_outside_ref(struct data *data)
+{
+	data->flags &= ~OUTSIDE_REF;
+	//TODO FIXME XXX here, we should tell card.c to make outstanding ioctls
+	//return somehow.
+}
+
 static int make_tmpdir(char *dir)
 {
 	if(mkdir(dir, 0755)) {
@@ -326,7 +365,7 @@ static void sigfd_event(void *user, int event)
 		/* Ignore. */
 	}
 	else if(ssi.ssi_signo == SIGPIPE) {
-		data->flags &= ~OUTSIDE_REF;
+		remove_outside_ref(data);
 	}
 	else if(ssi.ssi_signo == SIGCHLD) {
 		if(!data->child) return;
@@ -353,10 +392,12 @@ static void socket_event(void *user, int event)
 	struct data *data = user;
 	if(event & 12) {
 		/* HUP or ERR */
-		data->flags &= ~OUTSIDE_REF;
+		remove_outside_ref(data);
 	}
 	else if(event & 1) {
 		/* Readable */
+		//TODO struct message_in msg;
+
 		char buf[IN_BUFFER_SIZE];
 		struct iovec iov[1];
 		iov[0].iov_base = buf;
@@ -379,6 +420,19 @@ static void socket_event(void *user, int event)
 			fprintf(stderr, "Message too long.\n");
 			goto recv_error;
 		}
+
+struct message_in msg1;memcpy(&msg1, buf, sizeof msg1);
+if(msg1.type == MODESET_IOCTL_RESPONSE) {
+	struct message_in msg = msg1;
+	char *buf1 = buf + sizeof msg1;
+	char *buf = buf1;
+	int len = status - sizeof msg1;
+
+printf("Session-master: got response to ioctl with retval = %d.\n", msg.modeset_ioctl.return_value);
+	card_modeset_ioctl_response(data->card, msg.modeset_ioctl.unique,
+			msg.modeset_ioctl.return_value, buf, len);
+	goto msg_err;
+}
 
 		struct message_in *msg;
 		char *buf_p = buf;
@@ -482,6 +536,7 @@ static void handle_message(struct data *data, struct message_in *msg)
 		umount(data->nothing_mountpoint);
 		data->flags |= SESSION_REF;
 	}
+#if 0
 	else if(msg->type == RESOURCES_RESPONSE) {
 		printf("GOT RESPONSE TO RESOURCES\n");
 printf("count_crtcs: %d\n",
@@ -494,6 +549,7 @@ for(i = 0; i < msg->resources.res->count_crtcs; ++i) {
 				msg->resources.res);
 		printf("RESOURCES OUT\n");
 	}
+#endif
 }
 
 static int forked_proc(void *user)
@@ -548,6 +604,7 @@ static void send_header(struct data *data, struct message_header_out *header)
 	}
 }
 
+#if 0
 static void framebuffer_callback(void *user, uint32_t name, int w, int h)
 {
 	struct data *data = user;
@@ -567,4 +624,45 @@ static void card_wants_resources(void *user, uint64_t unique)
 	header.resources.unique = unique;
 	send_header(data, &header);
 	return;
+}
+#endif
+
+int card_send_modeset_ioctl(void *user, uint64_t unique, uint32_t cmd,
+		uint64_t inarg, char *buf, int len)
+{
+printf("Session-master: actual sending of message to libsession.\n");
+printf(" len = %d\n", len);
+	struct data *data = user;
+
+	if(!(data->flags & OUTSIDE_REF)) return 1;
+
+	struct message_header_out header;
+	header.type = MODESET_IOCTL;
+	header.modeset_ioctl.unique = unique;
+	header.modeset_ioctl.cmd = cmd;
+	header.modeset_ioctl.inarg = inarg;
+	header.modeset_ioctl.len = len;
+
+	struct iovec iov[2];
+	iov[0].iov_base = &header;
+	iov[0].iov_len = sizeof header;
+	iov[1].iov_base = buf;
+	iov[1].iov_len = len;
+
+	struct msghdr hdr;
+	hdr.msg_name = NULL;
+	hdr.msg_namelen = 0;
+	hdr.msg_iov = iov;
+	hdr.msg_iovlen = sizeof iov / sizeof iov[0];
+	hdr.msg_control = NULL;
+	hdr.msg_controllen = 0;
+	hdr.msg_flags = 0;
+
+	ssize_t status = sendmsg(data->socket_fd, &hdr, 0);
+	if(status == -1) {
+		fprintf(stderr, "Error sending ioctl to user.\n");
+		return -1;
+	}
+
+	return 0;
 }

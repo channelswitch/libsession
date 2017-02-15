@@ -27,7 +27,11 @@ int session_new(
 		 * callbacks. */
 		void *user,
 		/* Other args. Can not be NULL. */
-		struct session_args *args);//,
+		struct session_args *args,
+		/* Callback for every modeset ioctl in the session. Structs
+		 * the same as in drm.h, drm_mode.h etc. Pointers automatically
+		 * translated. */
+		int (*modeset_ioctl)(void *user, uint32_t cmd, void *arg));//,
 		/* Setup (CRTCs, connectors, etc) for the default card. */
 //		struct session_dri_resources *resources);
 void session_free(struct session *s);

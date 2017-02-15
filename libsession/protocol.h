@@ -3,7 +3,7 @@
 
 enum message_type_in {
 	RUN_COMMAND,
-	RESOURCES_RESPONSE,
+	MODESET_IOCTL_RESPONSE,
 };
 
 struct message_in {
@@ -14,9 +14,10 @@ struct message_in {
 			char **argv;
 		} cmd;
 		struct {
-			uint32_t unique;
-			struct session_dri_resources *res;
-		} resources;
+			uint64_t unique;
+			uint32_t len;
+			int32_t return_value;
+		} modeset_ioctl;
 	};
 };
 
@@ -27,21 +28,18 @@ enum message_type_out {
 	INIT_SUCCESS,
 	GOT_SIGCHLD,
 	GOT_UMOUNT,
-	FRAMEBUFFER,
-	RESOURCES,
+	MODESET_IOCTL,
 };
 
 struct message_header_out {
 	enum message_type_out type;
 	union {
 		struct {
-			uint32_t gem_name;
-			int w;
-			int h;
-		} framebuffer;
-		struct {
-			uint32_t unique;
-		} resources;
+			uint64_t unique;
+			uint64_t inarg;
+			uint32_t cmd;
+			uint32_t len;
+		} modeset_ioctl;
 	};
 };
 

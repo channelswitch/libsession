@@ -34,7 +34,7 @@ deps() {
 compile() {
 	F=${1%.c}
 	D=$(deps "`cat $F.d 2>/dev/null`")
-	for i in $1; do printf "%s:\n\n" "$i" >&3; done
+	for i in $D; do printf "%s:\n\n" "$i" >&3; done
 	rule $F.o "$SRC/$F.c $D" \
 "	$CC $CFLAGS $2 -c -o $F.o $SRC/$F.c
 	$CC $CFLAGS $2 -M $SRC/$F.c > $F.d
@@ -61,9 +61,8 @@ for i in $SRC/setuid/*.c; do
 	SUOBJ="$SUOBJ ${f%.c}.o"
 done
 
-rule libsession.so "$LIBOBJ" \
-"	$CC -shared $LDFLAGS -o libsession.so $LIBOBJ
-	strip -w -K session_\* libsession.so
+rule libsession.so "$LIBOBJ $SRC/lib/libsession.version" \
+"	$CC -shared $LDFLAGS -o libsession.so $LIBOBJ -Wl,--version-script=$SRC/lib/libsession.version
 "
 
 rule session-master "$SUOBJ" \

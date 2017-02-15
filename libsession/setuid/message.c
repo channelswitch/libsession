@@ -6,16 +6,16 @@
 #include <string.h>
 
 static int deserialize_u32(uint32_t *out, char **buf, int *buf_sz);
-static int deserialize_u32_array(uint32_t **array_out, unsigned n_elems,
-		char **buf, int *buf_sz);
-static void free_u32_array(uint32_t *array);
+//static int deserialize_u32_array(uint32_t **array_out, unsigned n_elems,
+//		char **buf, int *buf_sz);
+//static void free_u32_array(uint32_t *array);
 static int deserialize_string(char **out, char **buf, int *buf_sz);
 static void free_string(char *s);
 static int deserialize_argv(char ***out, char **buf, int *buf_sz);
 static void free_argv(char **argv);
-static int resources_deserialize(struct session_dri_resources **res_out,
-		char **buf, int *buf_sz);
-static void resources_free(struct session_dri_resources *res);
+//static int resources_deserialize(struct session_dri_resources **res_out,
+//		char **buf, int *buf_sz);
+//static void resources_free(struct session_dri_resources *res);
 
 static int message_in(struct message_in *m, struct message_in **m_p,
 		char **buf, int *buf_sz)
@@ -37,14 +37,14 @@ static int message_in(struct message_in *m, struct message_in **m_p,
 		if(deserialize_string(&m->cmd.path, buf, buf_sz)) goto e_r1;
 		if(deserialize_argv(&m->cmd.argv, buf, buf_sz)) goto e_r2;
 	}
-	else if(m->type == RESOURCES_RESPONSE) {
-		if(deserialize_u32(&m->resources.unique, buf, buf_sz)) {
-			goto e_resources_sequence;
-		}
-		if(resources_deserialize(&m->resources.res, buf, buf_sz)) {
-			goto e_resources_res;
-		}
-	}
+//	else if(m->type == RESOURCES_RESPONSE) {
+//		if(deserialize_u32(&m->resources.unique, buf, buf_sz)) {
+//			goto e_resources_sequence;
+//		}
+//		if(resources_deserialize(&m->resources.res, buf, buf_sz)) {
+//			goto e_resources_res;
+//		}
+//	}
 	else {
 		goto e_type;
 	}
@@ -59,11 +59,11 @@ e_r1:
 		free_string(m->cmd.path);
 e_r2:;
 	}
-	else if(m->type == RESOURCES_RESPONSE) {
-		resources_free(m->resources.res);
-e_resources_res:
-e_resources_sequence:;
-	}
+//	else if(m->type == RESOURCES_RESPONSE) {
+//		resources_free(m->resources.res);
+//e_resources_res:
+//e_resources_sequence:;
+//	}
 e_type:
 	free(m);
 e_malloc:
@@ -100,43 +100,43 @@ static int deserialize_u32(uint32_t *out, char **buf, int *buf_sz)
  * Arrays
  */
 
-static int u32_array(uint32_t *array, uint32_t **array_out, unsigned n_elems,
-		char **buf, int *buf_sz)
-{
-	if(array) goto free;
-
-	array = malloc(sizeof *array * n_elems);
-	if(!array) {
-		fprintf(stderr, "Malloc returned NULL at %s: %d.\n", __FILE__,
-				__LINE__);
-		goto e_malloc;
-	}
-
-	unsigned i;
-	for(i = 0; i < n_elems; ++i) {
-		if(deserialize_u32(array + i, buf, buf_sz)) goto e_deserialize;
-	}
-
-	*array_out = array;
-	return 0;
-
-free:
-e_deserialize:
-	free(array);
-e_malloc:
-	return -1;
-}
-
-static int deserialize_u32_array(uint32_t **array_out, unsigned n_elems,
-		char **buf, int *buf_sz)
-{
-	return u32_array(NULL, array_out, n_elems, buf, buf_sz);
-}
-
-static void free_u32_array(uint32_t *array)
-{
-	if(array) u32_array(array, NULL, 0, NULL, NULL);
-}
+//static int u32_array(uint32_t *array, uint32_t **array_out, unsigned n_elems,
+//		char **buf, int *buf_sz)
+//{
+//	if(array) goto free;
+//
+//	array = malloc(sizeof *array * n_elems);
+//	if(!array) {
+//		fprintf(stderr, "Malloc returned NULL at %s: %d.\n", __FILE__,
+//				__LINE__);
+//		goto e_malloc;
+//	}
+//
+//	unsigned i;
+//	for(i = 0; i < n_elems; ++i) {
+//		if(deserialize_u32(array + i, buf, buf_sz)) goto e_deserialize;
+//	}
+//
+//	*array_out = array;
+//	return 0;
+//
+//free:
+//e_deserialize:
+//	free(array);
+//e_malloc:
+//	return -1;
+//}
+//
+//static int deserialize_u32_array(uint32_t **array_out, unsigned n_elems,
+//		char **buf, int *buf_sz)
+//{
+//	return u32_array(NULL, array_out, n_elems, buf, buf_sz);
+//}
+//
+//static void free_u32_array(uint32_t *array)
+//{
+//	if(array) u32_array(array, NULL, 0, NULL, NULL);
+//}
 
 /*
  * String
@@ -234,6 +234,7 @@ static void free_argv(char **a)
 	if(a) argv(a, NULL, NULL, NULL);
 }
 
+#if 0
 /*
  * Resources
  */
@@ -310,3 +311,4 @@ static void resources_free(struct session_dri_resources *res)
 	if(res) resources(res, NULL, NULL, NULL);
 }
 
+#endif

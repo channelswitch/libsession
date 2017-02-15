@@ -1,12 +1,14 @@
 #define _GNU_SOURCE
 #include "session.h"
 #include "serialize.h"
+#include "ioctls.h"
 #include "../protocol.h"
 #include <stdlib.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/un.h>
 #include <sched.h>
 #include <unistd.h>
 #include <signal.h>
@@ -16,7 +18,9 @@
 #include <stdio.h>
 #include <assert.h>
 
-static int spawn_master(struct session *s, int *socket_out, void *user);
+static int spawn_master(struct session *s, int *socket_out);
+static int wait_for_externally_spawned_master(struct session *s,
+		int *socket_out);
 static void socket_event(void *user, int event);
 static void handle_event(struct session *s, struct message_header_out *header,
 		char *payload, unsigned payload_len);
@@ -39,6 +43,8 @@ struct session {
 	void (*framebuffer_gem)(void *user, uint32_t name, int w, int h);
 	void (*resources)(void *user, unsigned sequence);
 
+	int (*modeset_ioctl)(void *user, uint32_t cmd, void *arg);
+
 	int socket_fd;
 	void *fd_ptr;
 };
@@ -55,7 +61,8 @@ static int session(
 		void (*unregister_fd)(void *fd_ptr),
 		void (*on_exit)(void *user),
 		void *user,
-		struct session_args *args)
+		struct session_args *args,
+		int (*modeset_ioctl)(void *user, uint32_t cmd, void *arg))
 {
 	if(s) goto free;
 
@@ -80,7 +87,9 @@ static int session(
 		args->framebuffer_gem : NULL;
 	s->resources = args->resources;
 
-	if(spawn_master(s, &s->socket_fd, user)) goto e_spawn_master;
+	s->modeset_ioctl = modeset_ioctl;
+
+	if(spawn_master(s, &s->socket_fd)) goto e_spawn_master;
 
 	s->fd_ptr = s->register_fd(user, s->socket_fd, 1, socket_event, s);
 	if(!s->fd_ptr) goto e_register_fd;
@@ -118,15 +127,16 @@ int session_new(
 		void (*unregister_fd)(void *fd_ptr),
 		void (*on_exit)(void *user),
 		void *user,
-		struct session_args *args)
+		struct session_args *args,
+		int (*modeset_ioctl)(void *user, uint32_t cmd, void *arg))
 {
 	return session(NULL, s_out, register_fd, unregister_fd, on_exit, user,
-			args);
+			args, modeset_ioctl);
 }
 
 void session_free(struct session *s)
 {
-	if(s) session(s, NULL, NULL, NULL, NULL, NULL, NULL);
+	if(s) session(s, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 }
 
 struct child_data {
@@ -136,9 +146,12 @@ struct child_data {
 
 static int spawn_master(
 		struct session *s,
-		int *socket_out,
-		void *user)
+		int *socket_out)
 {
+	if(secure_getenv("LIBSESSION_DEBUG_SOCKET")) {
+		return wait_for_externally_spawned_master(s, socket_out);
+	}
+
 	int status;
 	struct child_data child_data;
 	child_data.s = s;
@@ -191,6 +204,72 @@ e_socketpair:
 	return -1;
 }
 
+/*
+ * For debugging. Create a visible socket at the file specified by the
+ * environment variable LIBSESSION_DEBUG_SOCKET and wait for session-master
+ * to be launched by someone else.
+ */
+static int wait_for_externally_spawned_master(struct session *s,
+		int *socket_out)
+{
+	int r = -1;
+	char *path = secure_getenv("LIBSESSION_DEBUG_SOCKET");
+
+	int named_socket_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if(named_socket_fd == -1) {
+		fprintf(stderr, "Error creating a unix socket: %s.\n",
+				strerror(errno));
+		goto e_socket;
+	}
+
+	struct sockaddr_un addr;
+	memset(&addr, 0, sizeof addr);
+	addr.sun_family = AF_UNIX;
+	if(strlen(path) + 1 > sizeof addr.sun_path) {
+		fprintf(stderr, "Path to debug socket too long (\"%s\").\n",
+				path);
+		goto e_strcpy;
+	}
+
+	strcpy(addr.sun_path, path);
+	int status = bind(named_socket_fd, (void *)&addr, sizeof addr);
+	if(status == -1) {
+		fprintf(stderr, "Could not create debug socket at \"%s\": "
+				"%s.\n", path, strerror(errno));
+		goto e_bind;
+	}
+
+	status = listen(named_socket_fd, 1);
+	if(status == -1) {
+		fprintf(stderr, "Error in listen(): %s.\n",
+				strerror(errno));
+		goto e_listen;
+	}
+
+	fprintf(stderr, "Libsession waiting for Session-master to connect on "
+			"\"%s\".\n", path);
+
+	int socket_fd = accept(named_socket_fd, NULL, NULL);
+	if(socket_fd == -1) {
+		fprintf(stderr, "Error in accept(): %s.\n",
+				strerror(errno));
+		goto e_accept;
+	}
+
+	*socket_out = socket_fd;
+
+	r = 0;
+
+e_accept:
+e_listen:
+	unlink(path);
+e_bind:
+e_strcpy:
+	close(named_socket_fd);
+e_socket:
+	return r;
+}
+
 static int child_f(void *user)
 {
 	struct child_data *data = user;
@@ -218,6 +297,7 @@ static int grandchild_f(void *user)
 
 static void socket_event(void *user, int event)
 {
+printf("Libsession: Socket event\n");
 	struct session *s = user;
 
 	if(event & 12) hup: {
@@ -232,7 +312,7 @@ static void socket_event(void *user, int event)
 		struct message_header_out mho;
 		char arg[OUT_BUFFER_SIZE];
 
-		struct iovec iov[1];
+		struct iovec iov[2];
 		iov[0].iov_base = &mho;
 		iov[0].iov_len = sizeof mho;
 		iov[1].iov_base = arg;
@@ -276,15 +356,53 @@ static void handle_event(struct session *s, struct message_header_out *header,
 		s->unregister_fd(s->fd_ptr);
 		s->fd_ptr = NULL;
 	}
-	else if(header->type == FRAMEBUFFER) {
-		if(s->framebuffer_gem) s->framebuffer_gem(s->user,
-				header->framebuffer.gem_name,
-				header->framebuffer.w,
-				header->framebuffer.h);
+	else if(header->type == MODESET_IOCTL) {
+		struct message_in msg;
+		msg.type = MODESET_IOCTL_RESPONSE;
+		msg.modeset_ioctl.unique = header->modeset_ioctl.unique;
+		msg.modeset_ioctl.len = header->modeset_ioctl.len;
+
+		struct iovec iov[2];
+		iov[0].iov_base = &msg;
+		iov[0].iov_len = sizeof msg;
+		iov[1].iov_base = payload;
+		iov[1].iov_len = payload_len;
+
+		struct msghdr hdr;
+		hdr.msg_name = NULL;
+		hdr.msg_namelen = 0;
+		hdr.msg_iov = iov;
+		hdr.msg_iovlen = sizeof iov / sizeof iov[0];
+		hdr.msg_control = NULL;
+		hdr.msg_controllen = 0;
+		hdr.msg_flags = 0;
+
+		msg.modeset_ioctl.return_value = ioctls_parse_and_process(
+				header->modeset_ioctl.cmd, payload,
+				payload_len, s);
+		printf("Libsession: modeset was processed and retval = %d.\n",
+				msg.modeset_ioctl.return_value);
+
+		ssize_t status = sendmsg(s->socket_fd, &hdr, 0);
+		if(status == -1) {
+			fprintf(stderr, "Error sending ioctl to user.\n");
+		}
 	}
-	else if(header->type == RESOURCES) {
-		s->resources(s->user, header->resources.unique);
-	}
+//	else if(header->type == FRAMEBUFFER) {
+//		if(s->framebuffer_gem) s->framebuffer_gem(s->user,
+//				header->framebuffer.gem_name,
+//				header->framebuffer.w,
+//				header->framebuffer.h);
+//	}
+//	else if(header->type == RESOURCES) {
+//		s->resources(s->user, header->resources.unique);
+//	}
+}
+
+int ioctls_process(void *user, uint32_t cmd, void *arg)
+{
+	struct session *s = user;
+	return s->modeset_ioctl(s->user, cmd, arg);
 }
 
 static int send_message(struct session *s, struct message_in *msg)
@@ -313,13 +431,13 @@ int session_start(struct session *s, char *path, char **argv)
 	return send_message(s, &msg);
 }
 
-int session_send_dri_resources(struct session *s,
-		struct session_dri_resources *resources,
-		unsigned unique)
-{
-	struct message_in msg;
-	msg.type = RESOURCES_RESPONSE;
-	msg.resources.unique = unique;
-	msg.resources.res = resources;
-	return send_message(s, &msg);
-}
+//int session_send_dri_resources(struct session *s,
+//		struct session_dri_resources *resources,
+//		unsigned unique)
+//{
+//	struct message_in msg;
+//	msg.type = RESOURCES_RESPONSE;
+//	msg.resources.unique = unique;
+//	msg.resources.res = resources;
+//	return send_message(s, &msg);
+//}
