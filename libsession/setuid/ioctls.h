@@ -7,7 +7,7 @@
 struct fuse_ioctl_iovec;
 
 void handle_ioctl(void *user, uint64_t unique, uint64_t cmd, uint64_t inarg,
-		char *buf, int len);
+		char *buf, int len, int outsize);
 
 /* To be implemented by the user. */
 void retry_ioctl(void *user, uint64_t unique, struct fuse_ioctl_iovec *fiov,

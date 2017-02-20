@@ -428,7 +428,6 @@ if(msg1.type == MODESET_IOCTL_RESPONSE) {
 	char *buf = buf1;
 	int len = status - sizeof msg1;
 
-printf("Session-master: got response to ioctl with retval = %d.\n", msg.modeset_ioctl.return_value);
 	card_modeset_ioctl_response(data->card, msg.modeset_ioctl.unique,
 			msg.modeset_ioctl.return_value, buf, len);
 	goto msg_err;
@@ -630,8 +629,6 @@ static void card_wants_resources(void *user, uint64_t unique)
 int card_send_modeset_ioctl(void *user, uint64_t unique, uint32_t cmd,
 		uint64_t inarg, char *buf, int len)
 {
-printf("Session-master: actual sending of message to libsession.\n");
-printf(" len = %d\n", len);
 	struct data *data = user;
 
 	if(!(data->flags & OUTSIDE_REF)) return 1;

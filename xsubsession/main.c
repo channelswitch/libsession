@@ -260,13 +260,11 @@ int main(int argc, char **argv)
 			int status = epoll_wait(data.epoll_fd, &ev, 1, 0);
 			if(!status) break;
 			struct registered_fd *reg = ev.data.ptr;
-printf("Xsubsession: got message on fd: %d\n", reg->fd);
 			reg->f(reg->user1,
 					(ev.events & EPOLLIN ? 1 : 0) |
 					(ev.events & EPOLLOUT ? 2 : 0) |
 					(ev.events & EPOLLERR ? 4 : 0) |
 					(ev.events & EPOLLHUP ? 8 : 0));
-printf("Xsubsession: callback done\n");
 		}
 		draw(&data);
 		eglSwapBuffers(data.egl_display, egl_surface);
@@ -367,9 +365,10 @@ static void framebuffer(void *user, uint32_t name, int w, int h)
 static void x_event(void *user, int event)
 {
 	struct data *data = user;
-	XEvent xev;
-printf("X event\n");
-	XNextEvent(data->x_display, &xev);
+	while(XPending(data->x_display)) {
+		XEvent xev;
+		XNextEvent(data->x_display, &xev);
+	}
 }
 
 static GLuint name_to_texture(struct data *r, uint32_t name, int w, int h)
@@ -578,9 +577,9 @@ static int modeset_ioctl(void *user, uint32_t cmd, void *arg)
 		default:
 			printf("IOCTL unknown!!!!!\n");
 	}
-	sleep(5);
 	if(cmd == DRM_IOCTL_SET_VERSION) {
 		struct drm_set_version *sv = arg;
+		sv->drm_dd_major = 34344;
 		return 0;
 	}
 	else if(cmd == DRM_IOCTL_VERSION) {
@@ -590,8 +589,14 @@ static int modeset_ioctl(void *user, uint32_t cmd, void *arg)
 		strcpy(v->name, "Test name!!!!");
 		v->name_len = strlen(v->name);
 	}
+	else if(cmd == DRM_IOCTL_GET_UNIQUE) {
+		struct drm_unique *unique = arg;
+		static char unique_str[] = "pci:0000:01:00.0";
+		strncpy(unique->unique, unique_str, unique->unique_len);
+		unique->unique_len = strlen(unique_str);
+	}
 	else {
-		printf("Other ioctl\n");
+		printf("Xsubsession: other ioctl\n");
 	}
 
 	return 0;

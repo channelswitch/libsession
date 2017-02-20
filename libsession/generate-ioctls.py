@@ -78,7 +78,7 @@ for ioctl in ioctls:
             value_to_void_ptr, value_from_void_ptr))
 
     ioctls_c.write('static void parse_%s(void *user, uint64_t unique,\n'
-            '\t\tuint64_t inarg, char *buf, int len)\n'
+            '\t\tuint64_t inarg, char *buf, int len, int outsize)\n'
             '{\n' % (ioctl[0].lower()))
     if ioctl[1] == 'modeset':
         ioctls_c.write('\tchar *buf0 = buf;\n\tint len0 = len;\n')
@@ -128,7 +128,9 @@ for ioctl in ioctls:
 
     goto_targets.add(args_processed[-1][0])
 
-    ioctls_c.write('\n')
+    ioctls_c.write('\n'
+            '\tif(outsize == 0) goto checkpoint_%d;\n'
+            '\n' % (checkpoints - 1))
     if ioctl[1] == 'modeset':
         ioctls_c.write('\tsend_modeset_ioctl_to_user(user, unique, %s,\n'
                 '\t\tinarg, buf0, len0);\n' % (ioctl[0]))
@@ -171,14 +173,14 @@ for ioctl in ioctls:
 
 ioctls_c.write(
         'void handle_ioctl(void *user, uint64_t unique, uint64_t cmd,\n'
-        '\t\tuint64_t inarg, char *buf, int len)\n'
+        '\t\tuint64_t inarg, char *buf, int len, int outsize)\n'
         '{\n'
         '\tswitch(cmd) {\n')
 
 for ioctl in zip(ioctls, ioctl_args):
     ioctls_c.write('\t\tcase %s:\n'
             '\t\t\tparse_%s(\n'
-            '\t\t\t\tuser, unique, inarg, buf, len);\n'
+            '\t\t\t\tuser, unique, inarg, buf, len, outsize);\n'
             '\t\t\tbreak;\n' % (ioctl[0][0], ioctl[0][0].lower()))
 
 ioctls_c.write(

@@ -297,7 +297,6 @@ static int grandchild_f(void *user)
 
 static void socket_event(void *user, int event)
 {
-printf("Libsession: Socket event\n");
 	struct session *s = user;
 
 	if(event & 12) hup: {

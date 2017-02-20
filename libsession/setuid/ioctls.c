@@ -6,12 +6,14 @@
 #include <string.h>
 
 static void parse_drm_ioctl_set_version(void *user, uint64_t unique,
-		uint64_t inarg, char *buf, int len)
+		uint64_t inarg, char *buf, int len, int outsize)
 {
 	char *buf0 = buf;
 	int len0 = len;
 	int n_iovs = 0;
 	if(len == 0) goto checkpoint_0;
+
+	if(outsize == 0) goto checkpoint_0;
 
 	send_modeset_ioctl_to_user(user, unique, DRM_IOCTL_SET_VERSION,
 		inarg, buf0, len0);
@@ -26,7 +28,7 @@ checkpoint_0:
 }
 
 static void parse_drm_ioctl_get_unique(void *user, uint64_t unique,
-		uint64_t inarg, char *buf, int len)
+		uint64_t inarg, char *buf, int len, int outsize)
 {
 	char *buf0 = buf;
 	int len0 = len;
@@ -37,6 +39,8 @@ static void parse_drm_ioctl_get_unique(void *user, uint64_t unique,
 	buf += sizeof(struct drm_unique);
 	len -= sizeof(struct drm_unique);
 	if(uniq.unique_len != 0 && len == 0) goto checkpoint_1;
+
+	if(outsize == 0) goto checkpoint_1;
 
 	send_modeset_ioctl_to_user(user, unique, DRM_IOCTL_GET_UNIQUE,
 		inarg, buf0, len0);
@@ -60,7 +64,7 @@ return_error:
 }
 
 static void parse_drm_ioctl_version(void *user, uint64_t unique,
-		uint64_t inarg, char *buf, int len)
+		uint64_t inarg, char *buf, int len, int outsize)
 {
 	char *buf0 = buf;
 	int len0 = len;
@@ -71,6 +75,8 @@ static void parse_drm_ioctl_version(void *user, uint64_t unique,
 	buf += sizeof(struct drm_version);
 	len -= sizeof(struct drm_version);
 	if(version.name_len != 0 && len == 0) goto checkpoint_1;
+
+	if(outsize == 0) goto checkpoint_1;
 
 	send_modeset_ioctl_to_user(user, unique, DRM_IOCTL_VERSION,
 		inarg, buf0, len0);
@@ -102,7 +108,7 @@ return_error:
 }
 
 static void parse_drm_ioctl_mode_getresources(void *user, uint64_t unique,
-		uint64_t inarg, char *buf, int len)
+		uint64_t inarg, char *buf, int len, int outsize)
 {
 	char *buf0 = buf;
 	int len0 = len;
@@ -113,6 +119,8 @@ static void parse_drm_ioctl_mode_getresources(void *user, uint64_t unique,
 	buf += sizeof(struct drm_mode_card_res);
 	len -= sizeof(struct drm_mode_card_res);
 	if(res.count_fbs * 4 != 0 && len == 0) goto checkpoint_1;
+
+	if(outsize == 0) goto checkpoint_1;
 
 	send_modeset_ioctl_to_user(user, unique, DRM_IOCTL_MODE_GETRESOURCES,
 		inarg, buf0, len0);
@@ -148,24 +156,24 @@ return_error:
 }
 
 void handle_ioctl(void *user, uint64_t unique, uint64_t cmd,
-		uint64_t inarg, char *buf, int len)
+		uint64_t inarg, char *buf, int len, int outsize)
 {
 	switch(cmd) {
 		case DRM_IOCTL_SET_VERSION:
 			parse_drm_ioctl_set_version(
-				user, unique, inarg, buf, len);
+				user, unique, inarg, buf, len, outsize);
 			break;
 		case DRM_IOCTL_GET_UNIQUE:
 			parse_drm_ioctl_get_unique(
-				user, unique, inarg, buf, len);
+				user, unique, inarg, buf, len, outsize);
 			break;
 		case DRM_IOCTL_VERSION:
 			parse_drm_ioctl_version(
-				user, unique, inarg, buf, len);
+				user, unique, inarg, buf, len, outsize);
 			break;
 		case DRM_IOCTL_MODE_GETRESOURCES:
 			parse_drm_ioctl_mode_getresources(
-				user, unique, inarg, buf, len);
+				user, unique, inarg, buf, len, outsize);
 			break;
 		default:
 			return_ioctl_error(user, unique, buf, len);

@@ -1499,7 +1499,6 @@ ioi->cmd,
 #else
 printf("\nUnknown ioctl: %x\n", ioi->cmd);
 #endif
-sleep(5);
 first = 0;
 }
 			ioctl_write_and_return(c, header_in, -1, 0);
@@ -1636,7 +1635,6 @@ static void return_success(struct card *c, uint64_t unique, int return_value,
 void send_modeset_ioctl_to_user(void *user, uint64_t unique, uint32_t cmd,
 		uint64_t inarg, char *buf, int len)
 {
-printf("Session-master: send ioctl to user.\n");
 	struct ioctl_data *data = user;
 
 	struct ioctl_wait *w;
@@ -1724,7 +1722,7 @@ static int respond_to_dri_ioctl(struct card *c,
 	struct fuse_ioctl_in *ioi = (void *)buf;
 	int buflen = ih->len - sizeof *ih;
 
-#if 1
+#if 0
 	switch(ioi->cmd) {
 #define CASE(name) case name: printf("IOCTL " #name "!\n"); break;
 		CASE(DRM_IOCTL_SET_VERSION)
@@ -1772,12 +1770,11 @@ static int respond_to_dri_ioctl(struct card *c,
 			printf("IOCTL unknown!!!!!\n");
 	}
 #endif
-printf("ioctl len = %lu, len - sizeof drm_set_version = %lu, in_size = %d, out_size = %d\n", buflen - sizeof *ioi, buflen - sizeof *ioi - sizeof(struct drm_unique), ioi->in_size, ioi->out_size);
+//printf("ioctl len = %lu, in_size = %d, out_size = %d\n", buflen - sizeof *ioi, ioi->in_size, ioi->out_size);
 
-sleep(5);
 	handle_ioctl(&data, ih->unique, ioi->cmd, ioi->arg, buf + sizeof *ioi,
-			buflen - sizeof *ioi);
-printf("Session-master: ioctl done.\n");
+			buflen - sizeof *ioi, ioi->out_size);
+//printf("Session-master: ioctl done.\n");
 
 	return 0;
 }
