@@ -529,75 +529,151 @@ static void resources(void *user, unsigned sequence)
 #include "../libsession/drm.h"
 #include "../libsession/radeon_drm.h"
 
+static void fill_array(void *dst, size_t elem_sz, uint32_t *count, void *src,
+		int src_count);
+#define FILL(dst, count, src) fill_array(dst, sizeof src[0], &count, src, \
+		sizeof src / sizeof src[0])
+
 static int modeset_ioctl(void *user, uint32_t cmd, void *arg)
 {
-	switch(cmd) {
-#define CASE(name) case name: printf("Xsubsession got " #name "!\n"); break;
-		CASE(DRM_IOCTL_SET_VERSION)
-		CASE(DRM_IOCTL_GET_UNIQUE)
-		CASE(DRM_IOCTL_VERSION)
-		CASE(DRM_IOCTL_MODE_GETRESOURCES)
-		CASE(DRM_IOCTL_GET_CAP)
-		CASE(DRM_IOCTL_MODE_GETCRTC)
-		CASE(DRM_IOCTL_MODE_GETCONNECTOR)
-		CASE(DRM_IOCTL_SET_MASTER)
-		CASE(DRM_IOCTL_DROP_MASTER)
-		CASE(DRM_IOCTL_MODE_CREATE_DUMB)
-		CASE(DRM_IOCTL_MODE_ADDFB)
-		CASE(DRM_IOCTL_MODE_RMFB)
-		CASE(DRM_IOCTL_MODE_DESTROY_DUMB)
-		CASE(DRM_IOCTL_RADEON_INFO)
-		CASE(DRM_IOCTL_MODE_GETENCODER)
-		CASE(DRM_IOCTL_MODE_GETPROPERTY)
-		CASE(DRM_IOCTL_MODE_GETPROPBLOB)
-		CASE(DRM_IOCTL_RADEON_GEM_INFO)
-		CASE(DRM_IOCTL_RADEON_GEM_CREATE)
-		CASE(DRM_IOCTL_RADEON_GEM_MMAP)
-		CASE(DRM_IOCTL_RADEON_GEM_WAIT_IDLE)
-		CASE(DRM_IOCTL_RADEON_GEM_SET_TILING)
-		CASE(DRM_IOCTL_MODE_SETPROPERTY)
-		CASE(DRM_IOCTL_MODE_GETFB)
-		CASE(DRM_IOCTL_GEM_FLINK)
-		CASE(DRM_IOCTL_GEM_OPEN)
-		CASE(DRM_IOCTL_GEM_CLOSE)
-		CASE(DRM_IOCTL_RADEON_GEM_GET_TILING)
-		CASE(DRM_IOCTL_RADEON_CS)
-		CASE(DRM_IOCTL_MODE_SETGAMMA)
-		CASE(DRM_IOCTL_MODE_SETCRTC)
-		CASE(DRM_IOCTL_WAIT_VBLANK)
-		CASE(DRM_IOCTL_RADEON_GEM_BUSY)
-		CASE(DRM_IOCTL_RADEON_GEM_OP)
-		CASE(DRM_IOCTL_MODE_PAGE_FLIP)
-		CASE(0xc018646d)
-		CASE(DRM_IOCTL_MODE_CURSOR)
-		CASE(DRM_IOCTL_MODE_CURSOR2)
-		CASE(DRM_IOCTL_MODE_MAP_DUMB)
-		CASE(DRM_IOCTL_MODE_DIRTYFB)
-#undef CASE
-		default:
-			printf("IOCTL unknown!!!!!\n");
-	}
 	if(cmd == DRM_IOCTL_SET_VERSION) {
 		struct drm_set_version *sv = arg;
-		sv->drm_dd_major = 34344;
-		return 0;
+		printf("di major = %d\n", sv->drm_di_major);
+		printf("di minor = %d\n", sv->drm_di_minor);
+		printf("dd major = %d\n", sv->drm_dd_major);
+		printf("dd minor = %d\n", sv->drm_dd_minor);
+		return -EACCES;
 	}
 	else if(cmd == DRM_IOCTL_VERSION) {
 		struct drm_version *v = arg;
-		printf("DRM_IOCTL_VERSION\n");
-		printf("name_len = %d\n", v->name_len);
-		strcpy(v->name, "Test name!!!!");
+		strcpy(v->name, "radeon");
 		v->name_len = strlen(v->name);
+		strcpy(v->date, "20080528");
+		v->date_len = strlen(v->date);
+		strcpy(v->desc, "ATI Radeon");
+		v->desc_len = strlen(v->desc);
 	}
 	else if(cmd == DRM_IOCTL_GET_UNIQUE) {
 		struct drm_unique *unique = arg;
-		static char unique_str[] = "pci:0000:01:00.0";
+		//static char unique_str[] = "pci:0000:01:00.0";
+		static char unique_str[] = "";
 		strncpy(unique->unique, unique_str, unique->unique_len);
 		unique->unique_len = strlen(unique_str);
 	}
+	else if(cmd == DRM_IOCTL_MODE_GETRESOURCES) {
+		struct drm_mode_card_res *res = arg;
+		static uint32_t fbs[] = { };
+		static uint32_t crtcs[] = { 29, 31, 33, 35, 37, 39 };
+		static uint32_t connectors[] = { 45 };
+		static uint32_t encoders[] = { 44 };
+//printf("sizes in: %d %d %d %d\n", res->count_fbs, res->count_crtcs, res->count_connectors, res->count_encoders);
+#define COPY_ARRAY(name) memcpy((void *)res->name##_id_ptr, name##s, 4 * (res->count_##name##s > (sizeof name##s / sizeof name##s[0]) ? (sizeof name##s / sizeof name##s[0]) : res->count_##name##s)); res->count_##name##s = (sizeof name##s / sizeof name##s[0]);
+		COPY_ARRAY(fb);
+		COPY_ARRAY(crtc);
+		COPY_ARRAY(connector);
+		COPY_ARRAY(encoder);
+		res->min_width = 0;
+		res->max_width = 16384;
+		res->min_height = 0;
+		res->max_height = 16384;
+//printf("sizes out: %d %d %d %d\n", res->count_fbs, res->count_crtcs, res->count_connectors, res->count_encoders);
+	}
+	else if(cmd == DRM_IOCTL_MODE_GETCONNECTOR) {
+		struct drm_mode_get_connector *c = arg;
+		c->encoder_id = 44;
+		c->connector_type = 11;
+		c->connector_type_id = 1;
+		c->connection = 1;
+		c->mm_width = 600;
+		c->mm_height = 340;
+		c->subpixel = 1;
+		uint32_t encs[] = { 44 };
+		FILL((void *)c->encoders_ptr, c->count_encoders, encs);
+		uint32_t props[] = { 1, 2, 18, 22, 23, 24, 26, 20, 25, 27 };
+		FILL((void *)c->props_ptr, c->count_props, props);
+		uint64_t prop_values[] = { 89, 0, 1, 0, 0, 0, 0, 0, 2, 0 };
+		FILL((void *)c->prop_values_ptr, c->count_props, prop_values);
+		struct drm_mode_modeinfo modes[] = {
+			{
+				.name = "800x600",
+				.clock = 40000,
+				.hdisplay = 800, .vdisplay = 600,
+				.hsync_start = 840, .vsync_start = 601,
+				.hsync_end = 968, .vsync_end = 605,
+				.htotal = 1056, .vtotal = 628,
+				.hskew = 0, .vscan = 0,
+				.vrefresh = 60,
+				.flags = 5,
+				.type = 64,
+			},
+		};
+		FILL((void *)c->modes_ptr, c->count_modes, modes);
+	}
+	else if(cmd == DRM_IOCTL_MODE_GETENCODER) {
+		struct drm_mode_get_encoder *e = arg;
+		e->encoder_type = 2;
+		e->crtc_id = 29;
+		e->possible_crtcs = 63;
+		e->possible_clones = 0;
+	}
 	else {
-		printf("Xsubsession: other ioctl\n");
+		switch(cmd) {
+#define CASE(name) case name: printf("Xsubsession got " #name "!\n"); break;
+			CASE(DRM_IOCTL_SET_VERSION)
+			CASE(DRM_IOCTL_GET_UNIQUE)
+			CASE(DRM_IOCTL_VERSION)
+			CASE(DRM_IOCTL_MODE_GETRESOURCES)
+			CASE(DRM_IOCTL_GET_CAP)
+			CASE(DRM_IOCTL_MODE_GETCRTC)
+			CASE(DRM_IOCTL_MODE_GETCONNECTOR)
+			CASE(DRM_IOCTL_SET_MASTER)
+			CASE(DRM_IOCTL_DROP_MASTER)
+			CASE(DRM_IOCTL_MODE_CREATE_DUMB)
+			CASE(DRM_IOCTL_MODE_ADDFB)
+			CASE(DRM_IOCTL_MODE_RMFB)
+			CASE(DRM_IOCTL_MODE_DESTROY_DUMB)
+			CASE(DRM_IOCTL_RADEON_INFO)
+			CASE(DRM_IOCTL_MODE_GETENCODER)
+			CASE(DRM_IOCTL_MODE_GETPROPERTY)
+			CASE(DRM_IOCTL_MODE_GETPROPBLOB)
+			CASE(DRM_IOCTL_RADEON_GEM_INFO)
+			CASE(DRM_IOCTL_RADEON_GEM_CREATE)
+			CASE(DRM_IOCTL_RADEON_GEM_MMAP)
+			CASE(DRM_IOCTL_RADEON_GEM_WAIT_IDLE)
+			CASE(DRM_IOCTL_RADEON_GEM_SET_TILING)
+			CASE(DRM_IOCTL_MODE_SETPROPERTY)
+			CASE(DRM_IOCTL_MODE_GETFB)
+			CASE(DRM_IOCTL_GEM_FLINK)
+			CASE(DRM_IOCTL_GEM_OPEN)
+			CASE(DRM_IOCTL_GEM_CLOSE)
+			CASE(DRM_IOCTL_RADEON_GEM_GET_TILING)
+			CASE(DRM_IOCTL_RADEON_CS)
+			CASE(DRM_IOCTL_MODE_SETGAMMA)
+			CASE(DRM_IOCTL_MODE_SETCRTC)
+			CASE(DRM_IOCTL_WAIT_VBLANK)
+			CASE(DRM_IOCTL_RADEON_GEM_BUSY)
+			CASE(DRM_IOCTL_RADEON_GEM_OP)
+			CASE(DRM_IOCTL_MODE_PAGE_FLIP)
+			CASE(0xc018646d)
+			CASE(DRM_IOCTL_MODE_CURSOR)
+			CASE(DRM_IOCTL_MODE_CURSOR2)
+			CASE(DRM_IOCTL_MODE_MAP_DUMB)
+			CASE(DRM_IOCTL_MODE_DIRTYFB)
+#undef CASE
+			default:
+				printf("IOCTL unknown!!!!!\n");
+		}
 	}
 
 	return 0;
+}
+
+static void fill_array(void *dst, size_t elem_sz, uint32_t *count, void *src,
+		int src_count)
+{
+	size_t total_sz;
+	if(*count < src_count) total_sz = elem_sz * *count;
+	else total_sz = elem_sz * src_count;
+	memcpy(dst, src, total_sz);
+	*count = src_count;
 }

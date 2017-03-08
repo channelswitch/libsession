@@ -18,6 +18,16 @@ ioctls = [
             ('uint32_t crtcs[1024]', '(uint64_t)res.crtc_id_ptr', 'res.count_crtcs * 4'),
             ('uint32_t connectors[1024]', '(uint64_t)res.connector_id_ptr', 'res.count_connectors * 4'),
             ('uint32_t encoders[1024]', '(uint64_t)res.encoder_id_ptr', 'res.count_encoders * 4')]),
+        ('DRM_IOCTL_MODE_GETCONNECTOR', 'modeset', [
+            ('struct drm_mode_get_connector get_connector', 'inarg'),
+            ('uint32_t encoders[1024]', '(uint64_t)get_connector.encoders_ptr', 'get_connector.count_encoders * 4'),
+            ('struct drm_mode_modeinfo modes[1024]', '(uint64_t)get_connector.modes_ptr', 'get_connector.count_modes * sizeof(struct drm_mode_modeinfo)'),
+            ('uint32_t props[1024]', '(uint64_t)get_connector.props_ptr', 'get_connector.count_props * 4'),
+            ('uint64_t prop_values[1024]', '(uint64_t)get_connector.prop_values_ptr', 'get_connector.count_props * 8')]),
+        ('DRM_IOCTL_MODE_GETENCODER', 'modeset', [
+            ('struct drm_mode_get_encoder encoder', 'inarg')]),
+        ('DRM_IOCTL_RADEON_INFO', 'render', [
+            ('struct drm_radeon_info info', 'inarg')])
 ]
 
 ioctls_c = open('setuid/ioctls.c', 'w')
@@ -30,6 +40,20 @@ ioctls_c.write(
         '#include <linux/fuse.h>\n'
         '#include <string.h>\n'
         '\n')
+
+def save_ptr(out, i):
+    out.write('\tsize_t %s_actual_size = %s;\n'
+            '\tvoid *%s_actual_ptr = %s%s;\n'
+            '\t%s = %s%s;\n'
+            '\n' % (i[1][0], i[1][2],
+                i[1][0], i[1][6], i[1][5],
+                i[1][5], i[1][7], i[1][1]))
+
+def restore_ptr(out, i):
+    out.write('\tmemcpy(%s_buf_ptr, %s, %s_actual_size);\n'
+            '\t%s = %s%s_actual_ptr;\n'
+            '\n' % (i[1][0], i[1][1], i[1][0],
+                i[1][5], i[1][7], i[1][0]))
 
 ioctl_args = []
 for ioctl in ioctls:
@@ -78,10 +102,10 @@ for ioctl in ioctls:
             value_to_void_ptr, value_from_void_ptr))
 
     ioctls_c.write('static void parse_%s(void *user, uint64_t unique,\n'
-            '\t\tuint64_t inarg, char *buf, int len, int outsize)\n'
+            '\t\tuint64_t arg, char *buf, int len, int outsize)\n'
             '{\n' % (ioctl[0].lower()))
-    if ioctl[1] == 'modeset':
-        ioctls_c.write('\tchar *buf0 = buf;\n\tint len0 = len;\n')
+    ioctls_c.write('\tvoid *inarg = (void *)arg;\n')
+    ioctls_c.write('\tchar *buf0 = buf;\n\tint len0 = len;\n')
     ioctls_c.write('\tint n_iovs = 0;\n')
 
     # For modesetting we don't actually need the data, we just send the whole
@@ -116,8 +140,10 @@ for ioctl in ioctls:
             else: goto_targets.add(prev_name)
 
         if i[1][0] in depended_upon:
-            ioctls_c.write('\t%s;\n\tmemcpy(%s, buf, %s);\n' % (i[0][0],
-                i[1][1], i[1][2]))
+            ioctls_c.write('\t%s;\n' % (i[0][0]))
+            if ioctl[1] == 'render':
+                ioctls_c.write('\tchar *%s_buf_ptr = buf;\n' % (i[1][0]))
+            ioctls_c.write('\tmemcpy(%s, buf, %s);\n' % (i[1][1], i[1][2]))
 
         if i[1][0] in subsequent_buf_reads:
             ioctls_c.write('\tbuf += %s;\n\tlen -= %s;\n' % (i[1][2],
@@ -132,11 +158,23 @@ for ioctl in ioctls:
             '\tif(outsize == 0) goto checkpoint_%d;\n'
             '\n' % (checkpoints - 1))
     if ioctl[1] == 'modeset':
-        ioctls_c.write('\tsend_modeset_ioctl_to_user(user, unique, %s,\n'
-                '\t\tinarg, buf0, len0);\n' % (ioctl[0]))
+        ioctls_c.write('\tioctls_modeset(user, unique, %s,\n'
+                '\t\t\targ, buf0, len0);\n' % (ioctl[0]))
     else:
-        ioctls_c.write('\t%s_to_real_card(inarg, %s);\n' %
-                (ioctl[0].lower(), ', '.join([i[0] for i in args_processed])))
+        for i in zip(ioctl[2], args_processed):
+            save_ptr(ioctls_c, i)
+
+        ioctls_c.write('\tint return_value = ioctls_render(user, %s, inarg);\n'
+                % (ioctl[0]))
+
+        for i in zip(ioctl[2], args_processed)[::-1]:
+            restore_ptr(ioctls_c, i)
+
+        ioctls_c.write('\tioctls_render_done(user, return_value, unique, %s,\n'
+                '\t\t\targ, buf, len);\n' % (ioctl[0]))
+
+#        ioctls_c.write('\t%s_to_real_card(inarg, %s);\n' %
+#                (ioctl[0].lower(), ', '.join([i[0] for i in args_processed])))
 
     ioctls_c.write('\treturn;\n'
             '\n'
@@ -157,7 +195,7 @@ for ioctl in ioctls:
                 '\tfiov[%d].len = %s;\n'
                 '\t++n_iovs;\n' % (iov_pos, i[1][5], iov_pos, i[1][2]))
 
-    ioctls_c.write('\tretry_ioctl(user, unique, fiov, n_iovs, '
+    ioctls_c.write('\tioctls_retry(user, unique, fiov, n_iovs, '
             'n_iovs == %d);\n' % (arg_n))
 
     if need_error_return:
@@ -165,27 +203,28 @@ for ioctl in ioctls:
                 '\treturn;\n'
                 '\n'
                 'return_error:\n'
-                '\treturn_ioctl_error(user, unique, buf0, len0);\n')
+                '\tioctls_return_error(user, unique, %s,\n'
+                '\t\t\targ, buf0, len0);\n' % (ioctl[0]))
 
     ioctls_c.write('}\n\n')
 
     ioctl_args.append(args_processed)
 
 ioctls_c.write(
-        'void handle_ioctl(void *user, uint64_t unique, uint64_t cmd,\n'
-        '\t\tuint64_t inarg, char *buf, int len, int outsize)\n'
+        'void ioctls_handle(void *user, uint64_t unique, uint32_t cmd,\n'
+        '\t\tuint64_t arg, char *buf, int len, int outsize)\n'
         '{\n'
         '\tswitch(cmd) {\n')
 
 for ioctl in zip(ioctls, ioctl_args):
     ioctls_c.write('\t\tcase %s:\n'
             '\t\t\tparse_%s(\n'
-            '\t\t\t\tuser, unique, inarg, buf, len, outsize);\n'
+            '\t\t\t\tuser, unique, arg, buf, len, outsize);\n'
             '\t\t\tbreak;\n' % (ioctl[0][0], ioctl[0][0].lower()))
 
 ioctls_c.write(
         '\t\tdefault:\n'
-        '\t\t\treturn_ioctl_error(user, unique, buf, len);\n'
+        '\t\t\tioctls_return_error(user, unique, cmd, arg, buf, len);\n'
         '\t}\n'
         '}\n')
 
@@ -201,6 +240,8 @@ ioctls_c.write('/* Automatically generated */\n'
         '#include "../radeon_drm.h"\n'
         '\n')
 for ioctl in zip(ioctls, ioctl_args):
+    if ioctl[0][1] == 'render': continue
+
     ioctls_c.write('static int parse_%s(char *buf, int len, void *user)\n'
             '{\n'
             '\tvoid *inarg = NULL;\n'
@@ -209,31 +250,22 @@ for ioctl in zip(ioctls, ioctl_args):
         ioctls_c.write('\t%s;\n'
                 '\tmemcpy(%s, buf, %s);\n'
                 '\tchar *%s_buf_ptr = buf;\n'
-                '\tsize_t %s_actual_size = %s;\n'
-                '\tvoid *%s_actual_ptr = %s%s;\n'
                 '\tbuf += %s;\n'
                 '\tlen -= %s;\n'
-                '\t%s = %s%s;\n'
-                '\n' % (i[0][0],
+                % (i[0][0],
                     i[1][1], i[1][2],
                     i[1][0],
-                    i[1][0], i[1][2],
-                    i[1][0], i[1][6], i[1][5],
                     i[1][2],
-                    i[1][2],
-                    i[1][5], i[1][7], i[1][1]))
+                    i[1][2]))
+        save_ptr(ioctls_c, i)
 
     ioctls_c.write('\tint return_value = ioctls_process(user, %s, inarg);\n'
             '\n' % (ioctl[0][0]))
 
     for i in zip(ioctl[0][2], ioctl[1])[::-1]:
-        ioctls_c.write('\tmemcpy(%s_buf_ptr, %s, %s_actual_size);\n'
-                '\t%s = %s%s_actual_ptr;\n'
-                '\n' % (i[1][0], i[1][1], i[1][0],
-                    i[1][5], i[1][7], i[1][0]))
+        restore_ptr(ioctls_c, i)
 
-    ioctls_c.write('\n'
-            '\treturn return_value;\n'
+    ioctls_c.write('\treturn return_value;\n'
             '}\n'
             '\n')
 
@@ -243,6 +275,7 @@ ioctls_c.write('int ioctls_parse_and_process(uint32_t cmd, char *buf, '
         '\tswitch(cmd) {\n')
 
 for ioctl in zip(ioctls, ioctl_args):
+    if ioctl[0][1] == 'render': continue
     ioctls_c.write('\t\tcase %s:\n'
             '\t\t\treturn parse_%s(buf, len, user);\n' % (ioctl[0][0],
                 ioctl[0][0].lower()))

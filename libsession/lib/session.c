@@ -379,8 +379,8 @@ static void handle_event(struct session *s, struct message_header_out *header,
 		msg.modeset_ioctl.return_value = ioctls_parse_and_process(
 				header->modeset_ioctl.cmd, payload,
 				payload_len, s);
-		printf("Libsession: modeset was processed and retval = %d.\n",
-				msg.modeset_ioctl.return_value);
+//		printf("Libsession: modeset was processed and retval = %d.\n",
+//				msg.modeset_ioctl.return_value);
 
 		ssize_t status = sendmsg(s->socket_fd, &hdr, 0);
 		if(status == -1) {

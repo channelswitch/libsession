@@ -6,12 +6,16 @@
 
 struct fuse_ioctl_iovec;
 
-void handle_ioctl(void *user, uint64_t unique, uint64_t cmd, uint64_t inarg,
+void ioctls_handle(void *user, uint64_t unique, uint32_t cmd, uint64_t inarg,
 		char *buf, int len, int outsize);
 
 /* To be implemented by the user. */
-void retry_ioctl(void *user, uint64_t unique, struct fuse_ioctl_iovec *fiov,
+void ioctls_retry(void *user, uint64_t unique, struct fuse_ioctl_iovec *fiov,
 		int fiov_len, int last_retry);
-void return_ioctl_error(void *user, uint64_t unique, char *buf, int len);
-void send_modeset_ioctl_to_user(void *user, uint64_t unique, uint32_t cmd,
+void ioctls_return_error(void *user, uint64_t unique, uint32_t cmd,
+		uint64_t inarg, char *buf, int len);
+void ioctls_modeset(void *user, uint64_t unique, uint32_t cmd,
+		uint64_t inarg, char *buf, int len);
+int ioctls_render(void *user, uint32_t cmd, void *inarg);
+void ioctls_render_done(void *user, int retv, uint64_t unique, uint32_t cmd,
 		uint64_t inarg, char *buf, int len);

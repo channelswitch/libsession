@@ -1565,6 +1565,9 @@ struct ioctl_data {
  * Return error from ioctl. Buf and len are needed because FUSE won't accept
  * it otherwise (they must be correct -- ie len == fuse_ioctl_in->out_size).
  */
+//XXX remove
+#include "../drm.h"
+#include "../radeon_drm.h"
 static void return_error(struct card *c, uint64_t unique, char *buf, int len)
 {
 	struct fuse_out_header oh;
@@ -1595,9 +1598,61 @@ static void return_error(struct card *c, uint64_t unique, char *buf, int len)
 	}
 }
 
-void return_ioctl_error(void *user, uint64_t unique, char *buf, int len)
+void ioctls_return_error(void *user, uint64_t unique, uint32_t cmd,
+		uint64_t inarg, char *buf, int len)
 {
 	struct ioctl_data *data = user;
+#if 1
+	printf("SETUID: Program sent unhandled ioctl: ");
+	switch(cmd) {
+#define CASE(name) case name: printf(#name); break;
+		CASE(DRM_IOCTL_SET_VERSION)
+		CASE(DRM_IOCTL_GET_UNIQUE)
+		CASE(DRM_IOCTL_VERSION)
+		CASE(DRM_IOCTL_MODE_GETRESOURCES)
+		CASE(DRM_IOCTL_GET_CAP)
+		CASE(DRM_IOCTL_MODE_GETCRTC)
+		CASE(DRM_IOCTL_MODE_GETCONNECTOR)
+		CASE(DRM_IOCTL_SET_MASTER)
+		CASE(DRM_IOCTL_DROP_MASTER)
+		CASE(DRM_IOCTL_MODE_CREATE_DUMB)
+		CASE(DRM_IOCTL_MODE_ADDFB)
+		CASE(DRM_IOCTL_MODE_RMFB)
+		CASE(DRM_IOCTL_MODE_DESTROY_DUMB)
+		CASE(DRM_IOCTL_RADEON_INFO)
+		CASE(DRM_IOCTL_MODE_GETENCODER)
+		CASE(DRM_IOCTL_MODE_GETPROPERTY)
+		CASE(DRM_IOCTL_MODE_GETPROPBLOB)
+		CASE(DRM_IOCTL_RADEON_GEM_INFO)
+		CASE(DRM_IOCTL_RADEON_GEM_CREATE)
+		CASE(DRM_IOCTL_RADEON_GEM_MMAP)
+		CASE(DRM_IOCTL_RADEON_GEM_WAIT_IDLE)
+		CASE(DRM_IOCTL_RADEON_GEM_SET_TILING)
+		CASE(DRM_IOCTL_MODE_SETPROPERTY)
+		CASE(DRM_IOCTL_MODE_GETFB)
+		CASE(DRM_IOCTL_GEM_FLINK)
+		CASE(DRM_IOCTL_GEM_OPEN)
+		CASE(DRM_IOCTL_GEM_CLOSE)
+		CASE(DRM_IOCTL_RADEON_GEM_GET_TILING)
+		CASE(DRM_IOCTL_RADEON_CS)
+		CASE(DRM_IOCTL_MODE_SETGAMMA)
+		CASE(DRM_IOCTL_MODE_SETCRTC)
+		CASE(DRM_IOCTL_WAIT_VBLANK)
+		CASE(DRM_IOCTL_RADEON_GEM_BUSY)
+		CASE(DRM_IOCTL_RADEON_GEM_OP)
+		CASE(DRM_IOCTL_MODE_PAGE_FLIP)
+		CASE(0xc018646d)
+		CASE(DRM_IOCTL_MODE_CURSOR)
+		CASE(DRM_IOCTL_MODE_CURSOR2)
+		CASE(DRM_IOCTL_MODE_MAP_DUMB)
+		CASE(DRM_IOCTL_MODE_DIRTYFB)
+#undef CASE
+		default:
+			printf("Unknown ioctl");
+	}
+	printf("\n");
+#endif
+
 	return_error(data->c, unique, buf, len);
 }
 
@@ -1632,7 +1687,33 @@ static void return_success(struct card *c, uint64_t unique, int return_value,
 	}
 }
 
-void send_modeset_ioctl_to_user(void *user, uint64_t unique, uint32_t cmd,
+/*
+ * Render ioctl parsed and pointers changed
+ */
+
+int ioctls_render(void *user, uint32_t cmd, void *inarg)
+{
+	struct ioctl_data *data = user;
+	int status = ioctl(data->c->fd, cmd, inarg);
+	return status;
+}
+
+/*
+ * Render ioctl done and pointers restored
+ */
+
+void ioctls_render_done(void *user, int retv, uint64_t unique, uint32_t cmd,
+		uint64_t inarg, char *buf, int len)
+{
+	struct ioctl_data *data = user;
+	return_success(data->c, unique, retv, buf, len);
+}
+
+/*
+ * Modeset ioctl parsed
+ */
+
+void ioctls_modeset(void *user, uint64_t unique, uint32_t cmd,
 		uint64_t inarg, char *buf, int len)
 {
 	struct ioctl_data *data = user;
@@ -1673,7 +1754,7 @@ wrong_format:
 	ioctl_wait_free(w);
 }
 
-void retry_ioctl(void *user, uint64_t unique, struct fuse_ioctl_iovec *fiov,
+void ioctls_retry(void *user, uint64_t unique, struct fuse_ioctl_iovec *fiov,
 		int fiov_len, int last_retry)
 {
 	struct ioctl_data *data = user;
@@ -1711,8 +1792,6 @@ void retry_ioctl(void *user, uint64_t unique, struct fuse_ioctl_iovec *fiov,
 	}
 }
 
-#include "../drm.h"
-#include "../radeon_drm.h"
 static int respond_to_dri_ioctl(struct card *c,
 		struct fuse_in_header *ih, char *buf)
 {
@@ -1722,7 +1801,7 @@ static int respond_to_dri_ioctl(struct card *c,
 	struct fuse_ioctl_in *ioi = (void *)buf;
 	int buflen = ih->len - sizeof *ih;
 
-#if 0
+#if 1
 	switch(ioi->cmd) {
 #define CASE(name) case name: printf("IOCTL " #name "!\n"); break;
 		CASE(DRM_IOCTL_SET_VERSION)
@@ -1772,7 +1851,7 @@ static int respond_to_dri_ioctl(struct card *c,
 #endif
 //printf("ioctl len = %lu, in_size = %d, out_size = %d\n", buflen - sizeof *ioi, ioi->in_size, ioi->out_size);
 
-	handle_ioctl(&data, ih->unique, ioi->cmd, ioi->arg, buf + sizeof *ioi,
+	ioctls_handle(&data, ih->unique, ioi->cmd, ioi->arg, buf + sizeof *ioi,
 			buflen - sizeof *ioi, ioi->out_size);
 //printf("Session-master: ioctl done.\n");
 
