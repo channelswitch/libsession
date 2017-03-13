@@ -208,13 +208,13 @@ static int parse_drm_ioctl_mode_getconnector(char *buf, int len, void *user)
 	get_connector.encoders_ptr = (uint64_t)encoders;
 
 	struct drm_mode_modeinfo modes[1024];
-	memcpy(&modes, buf, get_connector.count_modes * sizeof(struct drm_mode_modeinfo));
+	memcpy(modes, buf, get_connector.count_modes * sizeof(struct drm_mode_modeinfo));
 	char *modes_buf_ptr = buf;
 	buf += get_connector.count_modes * sizeof(struct drm_mode_modeinfo);
 	len -= get_connector.count_modes * sizeof(struct drm_mode_modeinfo);
 	size_t modes_actual_size = get_connector.count_modes * sizeof(struct drm_mode_modeinfo);
 	void *modes_actual_ptr = (void *)get_connector.modes_ptr;
-	get_connector.modes_ptr = (uint64_t)&modes;
+	get_connector.modes_ptr = (uint64_t)modes;
 
 	uint32_t props[1024];
 	memcpy(props, buf, get_connector.count_props * 4);
@@ -242,7 +242,7 @@ static int parse_drm_ioctl_mode_getconnector(char *buf, int len, void *user)
 	memcpy(props_buf_ptr, props, props_actual_size);
 	get_connector.props_ptr = (uint64_t)props_actual_ptr;
 
-	memcpy(modes_buf_ptr, &modes, modes_actual_size);
+	memcpy(modes_buf_ptr, modes, modes_actual_size);
 	get_connector.modes_ptr = (uint64_t)modes_actual_ptr;
 
 	memcpy(encoders_buf_ptr, encoders, encoders_actual_size);
@@ -275,6 +275,117 @@ static int parse_drm_ioctl_mode_getencoder(char *buf, int len, void *user)
 	return return_value;
 }
 
+static int parse_drm_ioctl_get_cap(char *buf, int len, void *user)
+{
+	void *inarg = NULL;
+
+	struct drm_get_cap cap;
+	memcpy(&cap, buf, sizeof(struct drm_get_cap));
+	char *cap_buf_ptr = buf;
+	buf += sizeof(struct drm_get_cap);
+	len -= sizeof(struct drm_get_cap);
+	size_t cap_actual_size = sizeof(struct drm_get_cap);
+	void *cap_actual_ptr = inarg;
+	inarg = &cap;
+
+	int return_value = ioctls_process(user, DRM_IOCTL_GET_CAP, inarg);
+
+	memcpy(cap_buf_ptr, &cap, cap_actual_size);
+	inarg = cap_actual_ptr;
+
+	return return_value;
+}
+
+static int parse_drm_ioctl_mode_getcrtc(char *buf, int len, void *user)
+{
+	void *inarg = NULL;
+
+	struct drm_mode_crtc crtc;
+	memcpy(&crtc, buf, sizeof(struct drm_mode_crtc));
+	char *crtc_buf_ptr = buf;
+	buf += sizeof(struct drm_mode_crtc);
+	len -= sizeof(struct drm_mode_crtc);
+	size_t crtc_actual_size = sizeof(struct drm_mode_crtc);
+	void *crtc_actual_ptr = inarg;
+	inarg = &crtc;
+
+	uint32_t connectors[1024];
+	memcpy(connectors, buf, crtc.count_connectors * 4);
+	char *connectors_buf_ptr = buf;
+	buf += crtc.count_connectors * 4;
+	len -= crtc.count_connectors * 4;
+	size_t connectors_actual_size = crtc.count_connectors * 4;
+	void *connectors_actual_ptr = (void *)crtc.set_connectors_ptr;
+	crtc.set_connectors_ptr = (uint64_t)connectors;
+
+	int return_value = ioctls_process(user, DRM_IOCTL_MODE_GETCRTC, inarg);
+
+	memcpy(connectors_buf_ptr, connectors, connectors_actual_size);
+	crtc.set_connectors_ptr = (uint64_t)connectors_actual_ptr;
+
+	memcpy(crtc_buf_ptr, &crtc, crtc_actual_size);
+	inarg = crtc_actual_ptr;
+
+	return return_value;
+}
+
+static int parse_drm_ioctl_set_master(char *buf, int len, void *user)
+{
+	void *inarg = NULL;
+
+	int return_value = ioctls_process(user, DRM_IOCTL_SET_MASTER, inarg);
+
+	return return_value;
+}
+
+static int parse_drm_ioctl_drop_master(char *buf, int len, void *user)
+{
+	void *inarg = NULL;
+
+	int return_value = ioctls_process(user, DRM_IOCTL_DROP_MASTER, inarg);
+
+	return return_value;
+}
+
+static int parse_drm_ioctl_mode_setgamma(char *buf, int len, void *user)
+{
+	void *inarg = NULL;
+
+	int return_value = ioctls_process(user, DRM_IOCTL_MODE_SETGAMMA, inarg);
+
+	return return_value;
+}
+
+static int parse_drm_ioctl_mode_setcrtc(char *buf, int len, void *user)
+{
+	void *inarg = NULL;
+
+	int return_value = ioctls_process(user, DRM_IOCTL_MODE_SETCRTC, inarg);
+
+	return return_value;
+}
+
+static int parse_drm_ioctl_mode_page_flip(char *buf, int len, void *user)
+{
+	void *inarg = NULL;
+
+	struct drm_mode_crtc_page_flip flip;
+	memcpy(&flip, buf, sizeof(struct drm_mode_crtc_page_flip));
+	char *flip_buf_ptr = buf;
+	buf += sizeof(struct drm_mode_crtc_page_flip);
+	len -= sizeof(struct drm_mode_crtc_page_flip);
+	size_t flip_actual_size = sizeof(struct drm_mode_crtc_page_flip);
+	void *flip_actual_ptr = inarg;
+	inarg = &flip;
+
+	int return_value = ioctls_process(user, DRM_IOCTL_MODE_PAGE_FLIP, inarg);
+
+	memcpy(flip_buf_ptr, &flip, flip_actual_size);
+	inarg = flip_actual_ptr;
+
+	return return_value;
+}
+
 int ioctls_parse_and_process(uint32_t cmd, char *buf, int len, void *user)
 {
 	switch(cmd) {
@@ -290,6 +401,20 @@ int ioctls_parse_and_process(uint32_t cmd, char *buf, int len, void *user)
 			return parse_drm_ioctl_mode_getconnector(buf, len, user);
 		case DRM_IOCTL_MODE_GETENCODER:
 			return parse_drm_ioctl_mode_getencoder(buf, len, user);
+		case DRM_IOCTL_GET_CAP:
+			return parse_drm_ioctl_get_cap(buf, len, user);
+		case DRM_IOCTL_MODE_GETCRTC:
+			return parse_drm_ioctl_mode_getcrtc(buf, len, user);
+		case DRM_IOCTL_SET_MASTER:
+			return parse_drm_ioctl_set_master(buf, len, user);
+		case DRM_IOCTL_DROP_MASTER:
+			return parse_drm_ioctl_drop_master(buf, len, user);
+		case DRM_IOCTL_MODE_SETGAMMA:
+			return parse_drm_ioctl_mode_setgamma(buf, len, user);
+		case DRM_IOCTL_MODE_SETCRTC:
+			return parse_drm_ioctl_mode_setcrtc(buf, len, user);
+		case DRM_IOCTL_MODE_PAGE_FLIP:
+			return parse_drm_ioctl_mode_page_flip(buf, len, user);
 	}
 	return -1;
 }

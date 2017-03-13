@@ -32,7 +32,6 @@ EOT
 done
 
 if ! pkg-config libsession; then echo Install libsession!; fi
-if ! pkg-config sdl2; then echo Install SDL2!; fi
 if ! pkg-config gl; then echo Install OpenGL!; fi
 if ! pkg-config egl; then echo Install EGL!; fi
 if ! pkg-config glu; then echo Install GLU!; fi

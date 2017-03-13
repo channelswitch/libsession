@@ -134,26 +134,26 @@ static int link_dir(
 
 	while(1) {
 		/* Read next directory entry. */
-		struct dirent entry, *p;
-		int status = readdir_r(dir, &entry, &p);
-		if(status != 0) {
+		errno = 0;
+		struct dirent *entry = readdir(dir);
+		if(errno != 0) {
 			fprintf(stderr, "Error listing %s: %s.\n", orig,
-					strerror(status));
+					strerror(errno));
 			goto e_symlink;
 		}
-		if(!p) break;
+		if(!entry) break;
 
-		if(!strcmp(entry.d_name, ".") ||
-				!strcmp(entry.d_name, "..")) continue;
+		if(!strcmp(entry->d_name, ".") ||
+				!strcmp(entry->d_name, "..")) continue;
 
-		/* Append entry to path names except to, because it's needed
+		/* Append entry to path names except 'to', because it's needed
 		 * for filtering. */
-		if(try_append(s, orig, entry.d_name) < 0) goto e_symlink;
-		if(try_append(s, from, entry.d_name) < 0) goto e_symlink;
+		if(try_append(s, orig, entry->d_name) < 0) goto e_symlink;
+		if(try_append(s, from, entry->d_name) < 0) goto e_symlink;
 
 		/* Check if directory or something else. */
 		struct stat st;
-		status = lstat(orig, &st);
+		int status = lstat(orig, &st);
 		if(status < 0) {
 			fprintf(stderr, "Could not stat %s: %s.\n", orig,
 					strerror(errno));

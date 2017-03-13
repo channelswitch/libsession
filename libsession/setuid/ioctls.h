@@ -19,3 +19,5 @@ void ioctls_modeset(void *user, uint64_t unique, uint32_t cmd,
 int ioctls_render(void *user, uint32_t cmd, void *inarg);
 void ioctls_render_done(void *user, int retv, uint64_t unique, uint32_t cmd,
 		uint64_t inarg, char *buf, int len);
+void ioctls_parse_drm_ioctl_radeon_cs(void *user, uint64_t unique,
+		uint64_t arg, char *buf, int len, int outsize);

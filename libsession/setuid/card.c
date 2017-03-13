@@ -52,6 +52,7 @@ struct fuse_mmap_in {
 };
 
 
+/* This constant is also used in generate-ioctls.py */
 #define BUFSZ 0x21000
 #define STACK_SIZE (1 << 20)
 #define MAX_CONTEXTS 20
@@ -1110,46 +1111,7 @@ errgeminfo_0:		if(err) ioctl_write_and_return(c, header_in, err, 0);
 #endif
 		}
 		CASE(DRM_IOCTL_RADEON_GEM_MMAP)
-		{#else
-#define MAX_IOCTL_READS 20
-static int ioctl_retry(struct card *c, struct fuse_in_header *header_in,
-		unsigned n_iovs, ...)
-{
-	assert(n_iovs <= MAX_IOCTL_READS);
-
-	struct fuse_out_header header_out;
-	memset(&header_out, 0, sizeof header_out);
-	header_out.error = 0;
-	header_out.unique = header_in->unique;
-	header_out.len = 0;
-
-	struct fuse_ioctl_iovec fuse_iovec[MAX_IOCTL_READS];
-
-	va_list args;
-	va_start(args, header_in);
-	unsigned i;
-	for(i = 0; i < n_iovs; ++i) {
-		fuse_iovec[i].base = va_arg(args, uint64_t);
-		fuse_iovec[i].len = va_arg(args, uint64_t);
-	}
-	va_end(args);
-
-	struct iovec iov[3];
-
-	iov[0].iov_base = &header_out;
-	iov[0].iov_len = sizeof header_out;
-	header_out.len += iov[0].iov_len;
-
-	iov[1].iov_base = &out;
-	iov[1].iov_len = sizeof out;
-	header_out.len += iov[1].iov_len;
-
-	iov[2].iov_base = fuse_iovec;
-	iov[2].iov_len = sizeof fuse_iovec[0] * n_iovs;
-	header_out.len += iov[2].iov_len;
-
-	return writev(c->fd, iov, sizeof iov / sizeof iov[0]);
-}
+		{
 			struct drm_radeon_gem_mmap mm;
 			ioctl_read(c, header_in, &mm, ioi->arg, sizeof mm);
 			int status = ioctl(c->card, DRM_IOCTL_RADEON_GEM_MMAP, &mm);
@@ -1690,12 +1652,65 @@ static void return_success(struct card *c, uint64_t unique, int return_value,
 /*
  * Render ioctl parsed and pointers changed
  */
+#define PRINT_IOCTLS
+static void print_ioctl(uint32_t cmd)
+{
+	switch(cmd) {
+#define CASE(name) case name: printf(#name "\n"); break;
+		CASE(DRM_IOCTL_SET_VERSION)
+		CASE(DRM_IOCTL_GET_UNIQUE)
+		CASE(DRM_IOCTL_VERSION)
+		CASE(DRM_IOCTL_MODE_GETRESOURCES)
+		CASE(DRM_IOCTL_GET_CAP)
+		CASE(DRM_IOCTL_MODE_GETCRTC)
+		CASE(DRM_IOCTL_MODE_GETCONNECTOR)
+		CASE(DRM_IOCTL_SET_MASTER)
+		CASE(DRM_IOCTL_DROP_MASTER)
+		CASE(DRM_IOCTL_MODE_CREATE_DUMB)
+		CASE(DRM_IOCTL_MODE_ADDFB)
+		CASE(DRM_IOCTL_MODE_RMFB)
+		CASE(DRM_IOCTL_MODE_DESTROY_DUMB)
+		CASE(DRM_IOCTL_RADEON_INFO)
+		CASE(DRM_IOCTL_MODE_GETENCODER)
+		CASE(DRM_IOCTL_MODE_GETPROPERTY)
+		CASE(DRM_IOCTL_MODE_GETPROPBLOB)
+		CASE(DRM_IOCTL_RADEON_GEM_INFO)
+		CASE(DRM_IOCTL_RADEON_GEM_CREATE)
+		CASE(DRM_IOCTL_RADEON_GEM_MMAP)
+		CASE(DRM_IOCTL_RADEON_GEM_WAIT_IDLE)
+		CASE(DRM_IOCTL_RADEON_GEM_SET_TILING)
+		CASE(DRM_IOCTL_MODE_SETPROPERTY)
+		CASE(DRM_IOCTL_MODE_GETFB)
+		CASE(DRM_IOCTL_GEM_FLINK)
+		CASE(DRM_IOCTL_GEM_OPEN)
+		CASE(DRM_IOCTL_GEM_CLOSE)
+		CASE(DRM_IOCTL_RADEON_GEM_GET_TILING)
+		CASE(DRM_IOCTL_RADEON_CS)
+		CASE(DRM_IOCTL_MODE_SETGAMMA)
+		CASE(DRM_IOCTL_MODE_SETCRTC)
+		CASE(DRM_IOCTL_WAIT_VBLANK)
+		CASE(DRM_IOCTL_RADEON_GEM_BUSY)
+		CASE(DRM_IOCTL_RADEON_GEM_OP)
+		CASE(DRM_IOCTL_MODE_PAGE_FLIP)
+		CASE(0xc018646d)
+		CASE(DRM_IOCTL_MODE_CURSOR)
+		CASE(DRM_IOCTL_MODE_CURSOR2)
+		CASE(DRM_IOCTL_MODE_MAP_DUMB)
+		CASE(DRM_IOCTL_MODE_DIRTYFB)
+		CASE(DRM_IOCTL_RADEON_GETPARAM)
+#undef CASE
+		default:
+		printf("IOCTL unknown\n");
+	}
+}
 
 int ioctls_render(void *user, uint32_t cmd, void *inarg)
 {
 	struct ioctl_data *data = user;
-	int status = ioctl(data->c->fd, cmd, inarg);
-	return status;
+#ifdef PRINT_IOCTLS
+	print_ioctl(cmd);
+#endif
+	return ioctl(data->c->card, cmd, inarg);
 }
 
 /*
@@ -1717,6 +1732,14 @@ void ioctls_modeset(void *user, uint64_t unique, uint32_t cmd,
 		uint64_t inarg, char *buf, int len)
 {
 	struct ioctl_data *data = user;
+#ifdef PRINT_IOCTLS
+	print_ioctl(cmd);
+#endif
+
+	if(cmd == DRM_IOCTL_MODE_PAGE_FLIP) {
+		printf("PAGE FLIP\n");
+		goto e_alloc_wait;
+	}
 
 	struct ioctl_wait *w;
 	if(ioctl_wait_new(&w, data->c, unique, len)) goto e_alloc_wait;
@@ -1729,7 +1752,7 @@ void ioctls_modeset(void *user, uint64_t unique, uint32_t cmd,
 e_send:
 	ioctl_wait_free(w);
 e_alloc_wait:
-	return_error(user, unique, buf, len);
+	return_error(data->c, unique, buf, len);
 	return;
 }
 
@@ -1755,7 +1778,7 @@ wrong_format:
 }
 
 void ioctls_retry(void *user, uint64_t unique, struct fuse_ioctl_iovec *fiov,
-		int fiov_len, int last_retry)
+		int fiov_len, int fiov_out_len)
 {
 	struct ioctl_data *data = user;
 
@@ -1767,7 +1790,7 @@ void ioctls_retry(void *user, uint64_t unique, struct fuse_ioctl_iovec *fiov,
 	io.result = 0;
 	io.flags = FUSE_IOCTL_RETRY;
 	io.in_iovs = fiov_len;
-	io.out_iovs = last_retry ? fiov_len : 0;
+	io.out_iovs = fiov_out_len;
 
 	struct iovec iov[4];
 	iov[0].iov_base = &oh;
@@ -1779,13 +1802,13 @@ void ioctls_retry(void *user, uint64_t unique, struct fuse_ioctl_iovec *fiov,
 
 	oh.len = iov[0].iov_len + iov[1].iov_len + iov[2].iov_len;
 
-	if(last_retry) {
+	if(fiov_out_len) {
 		iov[3].iov_base = fiov;
-		iov[3].iov_len = sizeof fiov[0] * fiov_len;
+		iov[3].iov_len = sizeof fiov[0] * fiov_out_len;
 		oh.len += iov[3].iov_len;
 	}
 
-	int status = writev(data->c->fd, iov, last_retry ? 4 : 3);
+	int status = writev(data->c->fd, iov, fiov_out_len ? 4 : 3);
 	if(status < 0) {
 		fprintf(stderr, "Error writing ioctl response to CUSE: %s.\n",
 				strerror(errno));
@@ -1801,7 +1824,7 @@ static int respond_to_dri_ioctl(struct card *c,
 	struct fuse_ioctl_in *ioi = (void *)buf;
 	int buflen = ih->len - sizeof *ih;
 
-#if 1
+#if 0
 	switch(ioi->cmd) {
 #define CASE(name) case name: printf("IOCTL " #name "!\n"); break;
 		CASE(DRM_IOCTL_SET_VERSION)
@@ -1844,9 +1867,23 @@ static int respond_to_dri_ioctl(struct card *c,
 		CASE(DRM_IOCTL_MODE_CURSOR2)
 		CASE(DRM_IOCTL_MODE_MAP_DUMB)
 		CASE(DRM_IOCTL_MODE_DIRTYFB)
+//		CASE(DRM_IOCTL_RADEON_GETPARAM)
 #undef CASE
 		default:
-			printf("IOCTL unknown!!!!!\n");
+printf("\nUnknown ioctl: %x\n"
+"  Direction:\t\t%s%s\n"
+"  Type:\t\t\t%d%6$s\n"
+"  Number:\t\t%d (0x%5$x)\n",
+//  " (%s%s (%d %d) %x)\n",
+ioi->cmd,
+(ioi->cmd >> _IOC_DIRSHIFT) & ((1 << _IOC_DIRBITS) - 1) & 2 ? "R" : "",
+(ioi->cmd >> _IOC_DIRSHIFT) & _IOC_DIRBITS & 1 ? "W" : "",
+(ioi->cmd >> _IOC_TYPESHIFT) & ((1 << _IOC_TYPEBITS) - 1),
+//  DRM_IOCTL_BASE,
+(ioi->cmd >> _IOC_NRSHIFT) & ((1 << _IOC_NRBITS) - 1),
+((ioi->cmd >> _IOC_TYPESHIFT) & ((1 << _IOC_TYPEBITS) - 1)) == DRM_IOCTL_BASE ? " (DRM_IOCTL_BASE)" : " (unknown)");
+uint32_t cmd =  (ioi->cmd >> _IOC_NRSHIFT) & ((1 << _IOC_NRBITS) - 1);
+if(cmd > 0x40 && cmd < 0x80) printf("  Device-specific:\t%d (0x%1$x)\n\n", cmd - 0x40);
 	}
 #endif
 //printf("ioctl len = %lu, in_size = %d, out_size = %d\n", buflen - sizeof *ioi, ioi->in_size, ioi->out_size);

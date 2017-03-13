@@ -537,21 +537,38 @@ static void fill_array(void *dst, size_t elem_sz, uint32_t *count, void *src,
 static int modeset_ioctl(void *user, uint32_t cmd, void *arg)
 {
 	if(cmd == DRM_IOCTL_SET_VERSION) {
-		struct drm_set_version *sv = arg;
+		struct drm_set_version *sv = arg; // 1 4 2 43
 		printf("di major = %d\n", sv->drm_di_major);
 		printf("di minor = %d\n", sv->drm_di_minor);
 		printf("dd major = %d\n", sv->drm_dd_major);
 		printf("dd minor = %d\n", sv->drm_dd_minor);
-		return -EACCES;
+		/* TODO: Check out version <= in version or whatever */
+		sv->drm_di_major = 1;
+		sv->drm_di_minor = 4;
+		sv->drm_dd_major = 2;
+		sv->drm_dd_minor = 43;
+		return 0;
 	}
 	else if(cmd == DRM_IOCTL_VERSION) {
+//XXX horrible horrible hack to work around libdrm doing fstat on cuse fd and
+// seeing the wrong numbers
+static int i;++i;//printf("VERSION: %d\n", i);
+		char radeon[] = "radeon";
+		char r600[] = "r600";
+		char *name = i >= 9 ? r600 : radeon;
+
 		struct drm_version *v = arg;
-		strcpy(v->name, "radeon");
-		v->name_len = strlen(v->name);
-		strcpy(v->date, "20080528");
-		v->date_len = strlen(v->date);
-		strcpy(v->desc, "ATI Radeon");
-		v->desc_len = strlen(v->desc);
+		v->version_major = 2;
+		v->version_minor = 43;
+		v->version_patchlevel = 0;
+		char date[] = "20080528";
+		char desc[] = "ATI Radeon";
+		strncpy(v->name, name, v->name_len);
+		v->name_len = strlen(name);
+		strncpy(v->date, date, v->date_len);
+		v->date_len = strlen(date);
+		strncpy(v->desc, desc, v->desc_len);
+		v->desc_len = strlen(desc);
 	}
 	else if(cmd == DRM_IOCTL_GET_UNIQUE) {
 		struct drm_unique *unique = arg;
@@ -563,7 +580,7 @@ static int modeset_ioctl(void *user, uint32_t cmd, void *arg)
 	else if(cmd == DRM_IOCTL_MODE_GETRESOURCES) {
 		struct drm_mode_card_res *res = arg;
 		static uint32_t fbs[] = { };
-		static uint32_t crtcs[] = { 29, 31, 33, 35, 37, 39 };
+		static uint32_t crtcs[] = { 29 };//, 31, 33, 35, 37, 39 };
 		static uint32_t connectors[] = { 45 };
 		static uint32_t encoders[] = { 44 };
 //printf("sizes in: %d %d %d %d\n", res->count_fbs, res->count_crtcs, res->count_connectors, res->count_encoders);
@@ -589,9 +606,11 @@ static int modeset_ioctl(void *user, uint32_t cmd, void *arg)
 		c->subpixel = 1;
 		uint32_t encs[] = { 44 };
 		FILL((void *)c->encoders_ptr, c->count_encoders, encs);
-		uint32_t props[] = { 1, 2, 18, 22, 23, 24, 26, 20, 25, 27 };
+		//uint32_t props[] = { 1, 2, 18, 22, 23, 24, 26, 20, 25, 27 };
+		uint32_t props[] = {};
 		FILL((void *)c->props_ptr, c->count_props, props);
-		uint64_t prop_values[] = { 89, 0, 1, 0, 0, 0, 0, 0, 2, 0 };
+		//uint64_t prop_values[] = { 89, 0, 1, 0, 0, 0, 0, 0, 2, 0 };
+		uint64_t prop_values[] = {};
 		FILL((void *)c->prop_values_ptr, c->count_props, prop_values);
 		struct drm_mode_modeinfo modes[] = {
 			{
@@ -616,9 +635,50 @@ static int modeset_ioctl(void *user, uint32_t cmd, void *arg)
 		e->possible_crtcs = 63;
 		e->possible_clones = 0;
 	}
+	else if(cmd == DRM_IOCTL_GET_CAP) {
+		struct drm_get_cap *cap = arg;
+//		if(cap->capability == 5) cap->value = 3;
+		if(cap->capability == DRM_CAP_PRIME) {
+			cap->value = 0;
+		}
+		else if(cap->capability == DRM_CAP_DUMB_PREFERRED_DEPTH) {
+			cap->value = 24;
+		}
+		else if(cap->capability == DRM_CAP_DUMB_BUFFER) {
+			cap->value = 1;
+		}
+		else {
+			printf("unknown DRM_IOCTL_GET_CAP\n");
+			return -1;
+		}
+printf("DRM_IOCTL_MODE_CREATE_DUMB = %lu\n", DRM_IOCTL_MODE_CREATE_DUMB);
+	}
+	else if(cmd == DRM_IOCTL_MODE_GETCRTC) {
+		struct drm_mode_crtc *crtc = arg;
+		uint32_t connectors[] = { };
+		FILL((void *)crtc->set_connectors_ptr, crtc->count_connectors, connectors);
+		crtc->fb_id = 0; // TODO change?
+		crtc->x = 0;
+		crtc->y = 0;
+		crtc->gamma_size = 256;
+		crtc->mode_valid = 0;
+//		crtc->
+	}
+	else if(cmd == DRM_IOCTL_SET_MASTER) {
+		return 0;
+	}
+	else if(cmd == DRM_IOCTL_DROP_MASTER) {
+		return 0;
+	}
+	else if(cmd == DRM_IOCTL_MODE_SETGAMMA) {
+		return 0;
+	}
+	else if(cmd == DRM_IOCTL_MODE_SETCRTC) {
+		return 0;
+	}
 	else {
 		switch(cmd) {
-#define CASE(name) case name: printf("Xsubsession got " #name "!\n"); break;
+#define CASE(name) case name: printf("XSUBSESSION UNHANDLED " #name "!\n"); break;
 			CASE(DRM_IOCTL_SET_VERSION)
 			CASE(DRM_IOCTL_GET_UNIQUE)
 			CASE(DRM_IOCTL_VERSION)
@@ -663,6 +723,7 @@ static int modeset_ioctl(void *user, uint32_t cmd, void *arg)
 			default:
 				printf("IOCTL unknown!!!!!\n");
 		}
+		return -1;
 	}
 
 	return 0;
